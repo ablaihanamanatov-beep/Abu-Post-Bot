@@ -1,0 +1,140 @@
+# =========================
+# ПУБЛИКАЦИЯ ОБЪЯВЛЕНИЯ
+# =========================
+
+async def publish_ad(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    data = context.user_data
+
+    user = update.effective_user
+
+    username = (
+        f"@{user.username}"
+        if user.username
+        else "Без username"
+    )
+
+
+    caption = f"""
+🎮 {data['game'].upper()} 🎮
+
+➡️ Доступ: {data['access']}
+➡️ Цена: {data['price']} {data['currency']}
+➡️ Оплата: {data['payment']}
+
+✍️ Писать — {username}
+
+💬 Отзывы
+{REVIEWS}
+
+✅ Гарант сделки
+{GUARANT}
+
+📢 Abu Post
+{ABU_POST}
+
+🧑‍💻 𝙎𝙚𝙡𝙡𝙚𝙧𝙨 𝘼𝙗𝙪 🧑‍💻
+"""
+
+
+    photos = data.get(
+        "photos",
+        []
+    )
+
+
+    if len(photos) < 2:
+
+        await update.message.reply_text(
+            "❌ Нужно минимум 2 фотографии."
+        )
+
+        return PHOTOS
+
+
+
+    media = []
+
+    for i, photo in enumerate(photos):
+
+        if i == 0:
+
+            media.append(
+                InputMediaPhoto(
+                    media=photo,
+                    caption=caption
+                )
+            )
+
+        else:
+
+            media.append(
+                InputMediaPhoto(
+                    media=photo
+                )
+            )
+
+
+    await context.bot.send_media_group(
+        chat_id=CHANNEL,
+        media=media
+    )
+
+
+    # сохраняем в базу
+
+    cursor.execute(
+        """
+        INSERT INTO ads
+        (
+        user_id,
+        game,
+        access,
+        price,
+        currency,
+        payment,
+        description
+        )
+        VALUES(?,?,?,?,?,?,?)
+        """,
+        (
+            user.id,
+            data["game"],
+            data["access"],
+            data["price"],
+            data["currency"],
+            data["payment"],
+            data["description"]
+        )
+    )
+
+
+    cursor.execute(
+        """
+        UPDATE users
+        SET posts = posts + 1
+        WHERE user_id = ?
+        """,
+        (
+            user.id,
+        )
+    )
+
+
+    db.commit()
+
+
+
+    await update.message.reply_text(
+        "✅ Объявление успешно опубликовано!",
+        reply_markup=main_menu
+    )
+
+
+    context.user_data.clear()
+
+
+    return ConversationHandler.END

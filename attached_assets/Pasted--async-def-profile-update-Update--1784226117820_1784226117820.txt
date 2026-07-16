@@ -1,0 +1,146 @@
+# =========================
+# ПРОФИЛЬ
+# =========================
+
+async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    user = update.effective_user
+
+    cursor.execute(
+        """
+        SELECT posts
+        FROM users
+        WHERE user_id = ?
+        """,
+        (user.id,)
+    )
+
+    result = cursor.fetchone()
+
+    posts = result[0] if result else 0
+
+
+    await update.message.reply_text(
+        f"""
+👤 Мой профиль
+
+🆔 ID: {user.id}
+📢 Объявлений: {posts}
+
+⭐ Репутация: новая
+"""
+    )
+
+
+
+# =========================
+# ОТЗЫВЫ
+# =========================
+
+async def reviews(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    await update.message.reply_text(
+        f"""
+⭐ Отзывы
+
+{REVIEWS}
+"""
+    )
+
+
+
+# =========================
+# ПОИСК АККАУНТОВ
+# =========================
+
+async def search_ads(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    cursor.execute(
+        """
+        SELECT game, price, currency, payment
+        FROM ads
+        ORDER BY id DESC
+        LIMIT 10
+        """
+    )
+
+    ads = cursor.fetchall()
+
+
+    if not ads:
+
+        await update.message.reply_text(
+            "🔍 Пока нет доступных объявлений."
+        )
+
+        return
+
+
+    text = "🔍 Последние аккаунты:\n\n"
+
+
+    for ad in ads:
+
+        text += f"""
+🎮 {ad[0]}
+💰 Цена: {ad[1]} {ad[2]}
+💳 Оплата: {ad[3]}
+
+"""
+
+    await update.message.reply_text(text)
+
+
+
+# =========================
+# ИЗБРАННОЕ
+# =========================
+
+async def favorites(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    await update.message.reply_text(
+        """
+❤️ Избранное
+
+У вас пока нет сохранённых аккаунтов.
+"""
+    )
+
+
+
+# =========================
+# ДОБАВЛЕНИЕ КНОПОК
+# =========================
+
+def add_profile_handlers(app):
+
+    app.add_handler(
+        MessageHandler(
+            filters.Regex("^👤 Профиль$"),
+            profile
+        )
+    )
+
+
+    app.add_handler(
+        MessageHandler(
+            filters.Regex("^⭐ Отзывы$"),
+            reviews
+        )
+    )
+
+
+    app.add_handler(
+        MessageHandler(
+            filters.Regex("^🔍 Поиск аккаунтов$"),
+            search_ads
+        )
+    )
+
+
+    app.add_handler(
+        MessageHandler(
+            filters.Regex("^❤️ Избранное$"),
+            favorites
+        )
+    )

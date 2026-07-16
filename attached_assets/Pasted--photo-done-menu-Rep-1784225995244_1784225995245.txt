@@ -1,0 +1,142 @@
+# =========================
+# СОЗДАНИЕ ОБЪЯВЛЕНИЯ
+# =========================
+
+photo_done_menu = ReplyKeyboardMarkup(
+    [
+        ["✅ Готово"],
+        ["❌ Отменить"]
+    ],
+    resize_keyboard=True
+)
+
+
+access_menu = ReplyKeyboardMarkup(
+    [
+        ["Google", "VK"],
+        ["Facebook", "X"],
+        ["Apple ID", "Другое"]
+    ],
+    resize_keyboard=True
+)
+
+
+async def create_ad(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    await update.message.reply_text(
+        "🎮 Выберите игру:",
+        reply_markup=games_menu
+    )
+
+    return GAME
+
+
+
+async def choose_game(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    context.user_data["game"] = update.message.text
+
+    context.user_data["photos"] = []
+
+
+    await update.message.reply_text(
+        """
+📸 Отправьте от 2 до 10 фотографий аккаунта.
+
+После загрузки нажмите:
+✅ Готово
+
+""",
+        reply_markup=photo_done_menu
+    )
+
+
+    return PHOTOS
+
+
+
+async def get_photo(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    photos = context.user_data.get(
+        "photos",
+        []
+    )
+
+
+    if len(photos) >= 10:
+
+        return PHOTOS
+
+
+
+    photos.append(
+        update.message.photo[-1].file_id
+    )
+
+
+    context.user_data["photos"] = photos
+
+
+    # специально ничего не отвечаем
+    # чтобы не было сообщений после каждого фото
+
+
+    return PHOTOS
+
+
+
+async def photos_done(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    photos = context.user_data.get(
+        "photos",
+        []
+    )
+
+
+    if len(photos) < 2:
+
+        await update.message.reply_text(
+            "❌ Нужно минимум 2 фотографии."
+        )
+
+        return PHOTOS
+
+
+
+    await update.message.reply_text(
+        "🔑 Выберите доступ:",
+        reply_markup=access_menu
+    )
+
+
+    return ACCESS
+
+
+
+async def cancel_ad(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    context.user_data.clear()
+
+
+    await update.message.reply_text(
+        "❌ Создание объявления отменено.",
+        reply_markup=main_menu
+    )
+
+
+    return ConversationHandler.END

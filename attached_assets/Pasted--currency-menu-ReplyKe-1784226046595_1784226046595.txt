@@ -1,0 +1,134 @@
+# =========================
+# ДАННЫЕ ОБЪЯВЛЕНИЯ
+# =========================
+
+currency_menu = ReplyKeyboardMarkup(
+    [
+        ["🇰🇬 Сом"],
+        ["🇷🇺 Рубли"],
+        ["🇹🇯 Сомони"],
+        ["💵 Доллары"]
+    ],
+    resize_keyboard=True
+)
+
+
+payment_menu = ReplyKeyboardMarkup(
+    [
+        ["🏦 Мбанк", "🏦 Т-Банк"],
+        ["🏦 Сбер", "💰 ЮMoney"],
+        ["💳 Другое"]
+    ],
+    resize_keyboard=True
+)
+
+
+# =========================
+# ДОСТУП
+# =========================
+
+async def choose_access(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    context.user_data["access"] = update.message.text
+
+
+    await update.message.reply_text(
+        "📝 Напишите описание аккаунта:",
+        reply_markup=ReplyKeyboardMarkup(
+            [["❌ Отменить"]],
+            resize_keyboard=True
+        )
+    )
+
+
+    return DESCRIPTION
+
+
+
+# =========================
+# ОПИСАНИЕ
+# =========================
+
+async def get_description(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    context.user_data["description"] = update.message.text
+
+
+    await update.message.reply_text(
+        "💰 Напишите цену:",
+    )
+
+
+    return PRICE
+
+
+
+# =========================
+# ЦЕНА
+# =========================
+
+async def get_price(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    context.user_data["price"] = update.message.text
+
+
+    await update.message.reply_text(
+        "💵 Выберите валюту:",
+        reply_markup=currency_menu
+    )
+
+
+    return CURRENCY
+
+
+
+# =========================
+# ВАЛЮТА
+# =========================
+
+async def get_currency(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    context.user_data["currency"] = update.message.text
+
+
+    await update.message.reply_text(
+        "💳 Выберите способ оплаты:",
+        reply_markup=payment_menu
+    )
+
+
+    return PAYMENT
+
+
+
+# =========================
+# ОПЛАТА
+# =========================
+
+async def get_payment(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    context.user_data["payment"] = update.message.text
+
+
+    await update.message.reply_text(
+        "✅ Данные сохранены.\n\n"
+        "Следующий шаг — предпросмотр объявления."
+    )
+
+
+    return ConversationHandler.END

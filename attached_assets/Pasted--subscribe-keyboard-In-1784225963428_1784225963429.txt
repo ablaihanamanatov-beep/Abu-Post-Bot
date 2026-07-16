@@ -1,0 +1,141 @@
+# =========================
+# ПРОВЕРКА ПОДПИСКИ
+# =========================
+
+subscribe_keyboard = InlineKeyboardMarkup(
+    [
+        [
+            InlineKeyboardButton(
+                "📢 Подписаться",
+                url="https://t.me/shop_abu1"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "✅ Проверить подписку",
+                callback_data="check_sub"
+            )
+        ]
+    ]
+)
+
+
+async def check_subscription(user_id, context):
+
+    try:
+        member = await context.bot.get_chat_member(
+            CHANNEL,
+            user_id
+        )
+
+        return member.status in [
+            "member",
+            "administrator",
+            "creator"
+        ]
+
+    except Exception as e:
+
+        print("Ошибка проверки подписки:", e)
+
+        return False
+
+
+
+# =========================
+# START
+# =========================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    user = update.effective_user
+
+
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO users
+        (
+            user_id,
+            username
+        )
+        VALUES
+        (?,?)
+        """,
+        (
+            user.id,
+            user.username
+        )
+    )
+
+    db.commit()
+
+
+
+    if not await check_subscription(
+        user.id,
+        context
+    ):
+
+        await update.message.reply_text(
+            "❗ Для использования Abu Post подпишитесь на канал:",
+            reply_markup=subscribe_keyboard
+        )
+
+        return
+
+
+
+    await update.message.reply_text(
+        """
+🎮 Abu Post
+
+Добро пожаловать!
+
+Здесь можно покупать и продавать игровые аккаунты.
+""",
+        reply_markup=main_menu
+    )
+
+
+
+# =========================
+# КНОПКА ПРОВЕРКИ
+# =========================
+
+async def check_sub_button(
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE):
+
+
+    query = update.callback_query
+
+    await query.answer()
+
+
+    user_id = query.from_user.id
+
+
+
+    if await check_subscription(
+        user_id,
+        context
+    ):
+
+        await query.message.delete()
+
+        await query.message.reply_text(
+            """
+✅ Подписка подтверждена!
+
+Добро пожаловать в Abu Post 🎮
+""",
+            reply_markup=main_menu
+        )
+
+
+    else:
+
+        await query.answer(
+            "❌ Вы ещё не подписались!",
+            show_alert=True
+        )

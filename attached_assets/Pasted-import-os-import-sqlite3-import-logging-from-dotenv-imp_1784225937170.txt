@@ -1,0 +1,140 @@
+import os
+import sqlite3
+import logging
+
+from dotenv import load_dotenv
+
+from telegram import (
+    Update,
+    ReplyKeyboardMarkup,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton
+)
+
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ConversationHandler,
+    ContextTypes,
+    filters
+)
+
+
+# =========================
+# НАСТРОЙКИ
+# =========================
+
+load_dotenv()
+
+TOKEN = os.getenv("BOT_TOKEN")
+
+CHANNEL = "@shop_abu1"
+
+REVIEWS = "@otzyvabu"
+
+GUARANT = "@abu_ejje"
+
+ABU_POST = "@Post_FreeFireBot"
+
+
+# =========================
+# ЛОГИ
+# =========================
+
+logging.basicConfig(
+    level=logging.INFO
+)
+
+
+# =========================
+# БАЗА ДАННЫХ
+# =========================
+
+db = sqlite3.connect(
+    "abu_post.db",
+    check_same_thread=False
+)
+
+cursor = db.cursor()
+
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS users(
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER UNIQUE,
+    username TEXT,
+    posts INTEGER DEFAULT 0
+)
+""")
+
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS ads(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    game TEXT,
+    access TEXT,
+    price TEXT,
+    currency TEXT,
+    payment TEXT,
+    description TEXT
+)
+""")
+
+
+db.commit()
+
+
+# =========================
+# СОСТОЯНИЯ ОБЪЯВЛЕНИЯ
+# =========================
+
+(
+    GAME,
+    PHOTOS,
+    ACCESS,
+    DESCRIPTION,
+    PRICE,
+    CURRENCY,
+    PAYMENT
+) = range(7)
+
+
+# =========================
+# МЕНЮ
+# =========================
+
+main_menu = ReplyKeyboardMarkup(
+    [
+        ["📢 Объявление"],
+        ["🔍 Поиск аккаунтов"],
+        ["🔔 Сигнал"],
+        ["❤️ Избранное"],
+        ["👤 Профиль"],
+        ["⭐ Отзывы"]
+    ],
+    resize_keyboard=True
+)
+
+
+games_menu = ReplyKeyboardMarkup(
+    [
+        ["🔥 Free Fire", "⭐ Brawl Stars"],
+        ["🔫 PUBG", "🧱 Roblox"],
+        ["⚽ FIFA", "🎮 Другое"]
+    ],
+    resize_keyboard=True
+)
+
+
+cancel_menu = ReplyKeyboardMarkup(
+    [
+        ["❌ Отменить"]
+    ],
+    resize_keyboard=True
+)
+
+
+print("Abu Post основа загружена ✅")
