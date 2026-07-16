@@ -1,8 +1,8 @@
 modules = ["nodejs-24", "python-base-3.13"]
 
 [deployment]
-router = "application"
-deploymentTarget = "autoscale"
+run = "source .venv/bin/activate && python main.py"
+deploymentTarget = "vm"
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]
