@@ -1,6 +1,8 @@
 import os
 import sqlite3
 import logging
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from dotenv import load_dotenv
 
@@ -888,6 +890,20 @@ def main():
 
     # Жалоба — ловим текст (должен быть последним)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, save_complaint))
+
+    # Запускаем HTTP-сервер для Render (health check)
+    class HealthHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"Abu Post Bot is running")
+        def log_message(self, format, *args):
+            pass
+
+    port = int(os.getenv("PORT", 8080))
+    health_server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    thread = threading.Thread(target=health_server.serve_forever, daemon=True)
+    thread.start()
 
     print("🤖 Abu Post Bot запущен!")
 
