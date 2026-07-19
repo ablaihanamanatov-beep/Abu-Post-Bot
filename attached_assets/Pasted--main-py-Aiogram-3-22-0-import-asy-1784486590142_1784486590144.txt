@@ -1,0 +1,410 @@
+# ============================
+# main.py
+# Aiogram 3.22.0
+# ============================
+
+import asyncio
+import logging
+import sqlite3
+from datetime import datetime
+from threading import Thread
+
+from flask import Flask
+
+from aiogram import Bot, Dispatcher, F
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.filters import CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import (
+    CallbackQuery,
+    FSInputFile,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    Message,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+    InputMediaPhoto,
+)
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+# =====================================================
+# НАСТРОЙКИ
+# =====================================================
+
+BOT_TOKEN = "TOKEN"
+
+# Канал проверки подписки
+SUBSCRIBE_CHANNEL = "@shop_abu1"
+
+# Канал публикации объявлений
+POST_CHANNEL = "@YOUR_CHANNEL"
+
+# Username гаранта
+GUARANT = "@abu_ejje"
+
+# Отзывы
+REVIEWS = "@otzyvabu"
+
+# Правила
+RULES = "@abupravila"
+
+# Abu Post
+ABU_POST = "@Post_FreeFireBot"
+
+# Sellers Abu
+SELLERS = "Sellers Abu"
+
+logging.basicConfig(level=logging.INFO)
+
+bot = Bot(
+    token=BOT_TOKEN,
+    default=DefaultBotProperties(
+        parse_mode=ParseMode.HTML
+    )
+)
+
+storage = MemoryStorage()
+
+dp = Dispatcher(storage=storage)
+
+# =====================================================
+# Flask Keep Alive
+# =====================================================
+
+app = Flask(__name__)
+
+
+@app.route("/")
+def home():
+    return "Bot is running!"
+
+
+def run_web():
+    app.run(
+        host="0.0.0.0",
+        port=8080
+    )
+
+
+def keep_alive():
+    Thread(target=run_web).start()
+
+
+# =====================================================
+# SQLITE
+# =====================================================
+
+db = sqlite3.connect(
+    "database.db",
+    check_same_thread=False
+)
+
+cursor = db.cursor()
+
+# Пользователи
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS users(
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+user_id INTEGER UNIQUE,
+username TEXT,
+first_name TEXT,
+register_date TEXT,
+ads_count INTEGER DEFAULT 0,
+approved INTEGER DEFAULT 0,
+removed INTEGER DEFAULT 0,
+reviews INTEGER DEFAULT 0,
+likes INTEGER DEFAULT 0,
+dislikes INTEGER DEFAULT 0,
+active_boosts INTEGER DEFAULT 0,
+total_boosts INTEGER DEFAULT 0
+)
+""")
+
+# Объявления
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS ads(
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+user_id INTEGER,
+game TEXT,
+access TEXT,
+description TEXT,
+price TEXT,
+currency TEXT,
+bank TEXT,
+status TEXT,
+created_at TEXT
+)
+""")
+
+# Фото
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS photos(
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+ad_id INTEGER,
+file_id TEXT
+)
+""")
+
+# Статистика
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS statistics(
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+user_id INTEGER UNIQUE,
+publications INTEGER DEFAULT 0,
+moderation INTEGER DEFAULT 0
+)
+""")
+
+# Отзывы
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS seller_reviews(
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+user_id INTEGER,
+text TEXT,
+created_at TEXT
+)
+""")
+
+db.commit()
+
+# =====================================================
+# FSM
+# =====================================================
+
+class CreateAd(StatesGroup):
+
+    game = State()
+
+    photos = State()
+
+    access = State()
+
+    price = State()
+
+    description = State()
+
+    currency = State()
+
+    bank = State()
+
+    preview = State()
+
+# =====================================================
+# ИГРЫ
+# =====================================================
+
+GAMES = {
+    "ff": "🔥 Free Fire",
+    "pubg": "🔫 PUBG",
+    "tiktok": "🎵 TikTok",
+    "bs": "⭐ Brawl Stars",
+    "fifa": "⚽ FIFA",
+    "roblox": "🧱 Roblox"
+}
+
+# =====================================================
+# ВАЛЮТЫ
+# =====================================================
+
+CURRENCIES = {
+    "kgs": "🇰🇬 Сом",
+    "kzt": "🇰🇿 Тенге",
+    "tjs": "🇹🇯 Сомони",
+    "rub": "🇷🇺 Рубль"
+}
+
+# =====================================================
+# БАНКИ
+# =====================================================
+
+BANKS = {
+    "mbank": "🏦 MBANK",
+    "tbank": "🏦 T-Bank",
+    "yumoney": "🏦 ЮMoney",
+    "obank": "🏦 О!Банк",
+    "sber": "🏦 Сбер",
+    "kaspi": "🏦 Kaspi"
+}
+
+# =====================================================
+# ПРИВЯЗКИ
+# =====================================================
+
+ACCESSES = {
+    "google": "Google",
+    "vk": "VK",
+    "x": "X",
+    "facebook": "Facebook",
+    "mail": "Почта"
+}
+
+# =====================================================
+# DATABASE FUNCTIONS
+# =====================================================
+
+def add_user(message: Message):
+
+    cursor.execute(
+        "SELECT * FROM users WHERE user_id=?",
+        (message.from_user.id,)
+    )
+
+    user = cursor.fetchone()
+
+    if user:
+        return
+
+    now = datetime.now().strftime("%d.%m.%Y %H:%M")
+
+    cursor.execute(
+        """
+        INSERT INTO users
+        (
+        user_id,
+        username,
+        first_name,
+        register_date
+        )
+        VALUES
+        (
+        ?,?,?,?
+        )
+        """,
+        (
+            message.from_user.id,
+            message.from_user.username,
+            message.from_user.first_name,
+            now
+        )
+    )
+
+    cursor.execute(
+        """
+        INSERT INTO statistics
+        (
+        user_id
+        )
+        VALUES
+        (
+        ?
+        )
+        """,
+        (
+            message.from_user.id,
+        )
+    )
+
+    db.commit()
+
+
+def get_profile(user_id):
+
+    cursor.execute(
+        "SELECT * FROM users WHERE user_id=?",
+        (user_id,)
+    )
+
+    return cursor.fetchone()
+
+
+def increase_ads(user_id):
+
+    cursor.execute(
+        """
+        UPDATE users
+        SET ads_count = ads_count + 1
+        WHERE user_id=?
+        """,
+        (
+            user_id,
+        )
+    )
+
+    cursor.execute(
+        """
+        UPDATE statistics
+        SET publications = publications + 1
+        WHERE user_id=?
+        """,
+        (
+            user_id,
+        )
+    )
+
+    db.commit()
+
+
+def create_ad(
+        user_id,
+        game,
+        access,
+        description,
+        price,
+        currency,
+        bank
+):
+
+    now = datetime.now().strftime("%d.%m.%Y %H:%M")
+
+    cursor.execute(
+        """
+        INSERT INTO ads(
+        user_id,
+        game,
+        access,
+        description,
+        price,
+        currency,
+        bank,
+        status,
+        created_at
+        )
+        VALUES(?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            user_id,
+            game,
+            access,
+            description,
+            price,
+            currency,
+            bank,
+            "published",
+            now
+        )
+    )
+
+    db.commit()
+
+    return cursor.lastrowid
+
+
+def add_photo(
+        ad_id,
+        file_id
+):
+
+    cursor.execute(
+        """
+        INSERT INTO photos
+        (
+        ad_id,
+        file_id
+        )
+        VALUES
+        (
+        ?,?
+        )
+        """,
+        (
+            ad_id,
+            file_id
+        )
+    )
+
+    db.commit()
