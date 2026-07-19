@@ -1,0 +1,239 @@
+# =========================================================
+# main.py
+# Telegram Account Marketplace Bot
+# aiogram 3.22.0
+# =========================================================
+
+import asyncio
+import logging
+import sqlite3
+
+from datetime import datetime
+from threading import Thread
+
+from flask import Flask
+
+from aiogram import Bot, Dispatcher, F
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode, ChatMemberStatus
+from aiogram.filters import CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
+
+from aiogram.types import (
+    Message,
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+    InputMediaPhoto
+)
+
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+
+# =========================================================
+# CONFIG
+# =========================================================
+
+BOT_TOKEN = "YOUR_BOT_TOKEN"
+
+SUBSCRIBE_CHANNEL = "@shop_abu1"
+
+POST_CHANNEL = -1000000000000
+
+REVIEWS_CHANNEL = "@otzyvabu"
+
+SUPPORT_USERNAME = "@abu_ejje"
+
+RULES_USERNAME = "@abupravila"
+
+ABU_POST = "@Post_FreeFireBot"
+
+SELLERS = "Sellers Abu"
+
+
+# =========================================================
+# LOGGING
+# =========================================================
+
+logging.basicConfig(
+    level=logging.INFO
+)
+
+
+# =========================================================
+# BOT
+# =========================================================
+
+bot = Bot(
+    token=BOT_TOKEN,
+    default=DefaultBotProperties(
+        parse_mode=ParseMode.HTML
+    )
+)
+
+
+dp = Dispatcher(
+    storage=MemoryStorage()
+)
+
+
+# =========================================================
+# FLASK KEEP ALIVE
+# =========================================================
+
+app = Flask(__name__)
+
+
+@app.route("/")
+def home():
+
+    return "Bot is alive"
+
+
+def flask_run():
+
+    app.run(
+        host="0.0.0.0",
+        port=8080
+    )
+
+
+def keep_alive():
+
+    Thread(
+        target=flask_run,
+        daemon=True
+    ).start()
+
+
+# =========================================================
+# DATABASE
+# =========================================================
+
+db = sqlite3.connect(
+    "bot.db",
+    check_same_thread=False
+)
+
+cursor = db.cursor()
+
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS users(
+
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    user_id INTEGER UNIQUE,
+
+    username TEXT,
+
+    first_name TEXT,
+
+    register_date TEXT,
+
+    ads_count INTEGER DEFAULT 0,
+
+    moderation INTEGER DEFAULT 0,
+
+    approved INTEGER DEFAULT 0,
+
+    removed INTEGER DEFAULT 0,
+
+    reviews INTEGER DEFAULT 0,
+
+    likes INTEGER DEFAULT 0,
+
+    dislikes INTEGER DEFAULT 0,
+
+    active_boosts INTEGER DEFAULT 0,
+
+    total_boosts INTEGER DEFAULT 0
+
+)
+""")
+
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS ads(
+
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    user_id INTEGER,
+
+    game TEXT,
+
+    access TEXT,
+
+    description TEXT,
+
+    price INTEGER,
+
+    currency TEXT,
+
+    bank TEXT,
+
+    created TEXT,
+
+    status TEXT
+
+)
+""")
+
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS photos(
+
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    ad_id INTEGER,
+
+    file_id TEXT
+
+)
+""")
+
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS reviews(
+
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    user_id INTEGER,
+
+    text TEXT,
+
+    created TEXT
+
+)
+""")
+
+
+db.commit()
+
+
+# =========================================================
+# FSM
+# =========================================================
+
+class CreateAdvertisement(StatesGroup):
+
+    game = State()
+
+    photos = State()
+
+    access = State()
+
+    price = State()
+
+    description = State()
+
+    currency = State()
+
+    bank = State()
+
+    preview = State()
