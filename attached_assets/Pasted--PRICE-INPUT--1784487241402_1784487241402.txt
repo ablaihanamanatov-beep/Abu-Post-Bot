@@ -1,0 +1,347 @@
+# =========================================================
+# PRICE INPUT
+# =========================================================
+
+
+@dp.message(
+
+    CreateAdvertisement.price
+
+)
+
+async def price_input(
+
+        message: Message,
+
+        state: FSMContext
+
+):
+
+
+    if not message.text.isdigit():
+
+
+        await message.answer(
+
+            "❌ Введите цену только цифрами."
+
+        )
+
+
+        return
+
+
+
+
+    await state.update_data(
+
+        price=int(message.text)
+
+    )
+
+
+    await state.set_state(
+
+        CreateAdvertisement.description
+
+    )
+
+
+    await message.answer(
+
+        "📝 <b>Напишите описание аккаунта.</b>"
+
+    )
+
+
+
+
+
+# =========================================================
+# DESCRIPTION INPUT
+# =========================================================
+
+
+@dp.message(
+
+    CreateAdvertisement.description
+
+)
+
+async def description_input(
+
+        message: Message,
+
+        state: FSMContext
+
+):
+
+
+    description = message.text.strip()
+
+
+
+    if len(description) < 3:
+
+
+        await message.answer(
+
+            "❌ Описание слишком короткое."
+
+        )
+
+
+        return
+
+
+
+
+    await state.update_data(
+
+        description=description
+
+    )
+
+
+    await state.set_state(
+
+        CreateAdvertisement.currency
+
+    )
+
+
+    await message.answer(
+
+        "💱 <b>Выберите валюту:</b>",
+
+        reply_markup=currency_keyboard()
+
+    )
+
+
+
+
+
+# =========================================================
+# CURRENCY SELECT
+# =========================================================
+
+
+@dp.callback_query(
+
+    CreateAdvertisement.currency,
+
+    F.data.startswith("currency_")
+
+)
+
+async def currency_selected(
+
+        callback: CallbackQuery,
+
+        state: FSMContext
+
+):
+
+
+    currency_key = callback.data.replace(
+
+        "currency_",
+
+        ""
+
+    )
+
+
+    currency_name = CURRENCIES.get(
+
+        currency_key,
+
+        "Сом"
+
+    )
+
+
+    await state.update_data(
+
+        currency=currency_name
+
+    )
+
+
+    await state.set_state(
+
+        CreateAdvertisement.bank
+
+    )
+
+
+    await callback.message.edit_text(
+
+        "🏦 <b>Выберите банк оплаты:</b>",
+
+        reply_markup=bank_keyboard()
+
+    )
+
+
+    await callback.answer()
+
+
+
+
+
+# =========================================================
+# BANK SELECT
+# =========================================================
+
+
+@dp.callback_query(
+
+    CreateAdvertisement.bank,
+
+    F.data.startswith("bank_")
+
+)
+
+async def bank_selected(
+
+        callback: CallbackQuery,
+
+        state: FSMContext
+
+):
+
+
+    bank_key = callback.data.replace(
+
+        "bank_",
+
+        ""
+
+    )
+
+
+    bank_name = BANKS.get(
+
+        bank_key,
+
+        "Не указан"
+
+    )
+
+
+    await state.update_data(
+
+        bank=bank_name
+
+    )
+
+
+    data = await state.get_data()
+
+
+
+    preview_text = (
+
+        "📋 <b>Предпросмотр объявления</b>\n\n"
+
+        f"🎮 Игра: {data['game']}\n"
+
+        f"🔑 Доступ: {data['access']}\n\n"
+
+        f"📝 Описание:\n"
+
+        f"{data['description']}\n\n"
+
+        f"💰 Цена: "
+
+        f"{data['price']} "
+
+        f"{data['currency']}\n"
+
+        f"💳 Оплата: {data['bank']}"
+
+    )
+
+
+
+    await state.set_state(
+
+        CreateAdvertisement.preview
+
+    )
+
+
+    await callback.message.delete()
+
+
+
+    await bot.send_photo(
+
+        chat_id=callback.from_user.id,
+
+        photo=data["photos"][0],
+
+        caption=preview_text,
+
+        reply_markup=preview_keyboard()
+
+    )
+
+
+    await callback.answer()
+
+
+
+
+
+# =========================================================
+# PREVIEW CANCEL
+# =========================================================
+
+
+@dp.callback_query(
+
+    CreateAdvertisement.preview,
+
+    F.data == "cancel"
+
+)
+
+async def preview_cancel(
+
+        callback: CallbackQuery,
+
+        state: FSMContext
+
+):
+
+
+    await state.clear()
+
+
+    await callback.message.delete()
+
+
+    await bot.send_message(
+
+        callback.from_user.id,
+
+        "❌ Создание объявления отменено."
+
+    )
+
+
+    await bot.send_message(
+
+        callback.from_user.id,
+
+        "🏠 Главное меню",
+
+        reply_markup=main_menu_keyboard()
+
+    )
+
+
+    await callback.answer()
