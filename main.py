@@ -175,6 +175,27 @@ CREATE TABLE IF NOT EXISTS reviews(
 
 db.commit()
 
+# Миграция: добавляем колонки если их нет (для старых баз данных)
+migrations = [
+    "ALTER TABLE ads ADD COLUMN bank TEXT",
+    "ALTER TABLE ads ADD COLUMN created TEXT",
+    "ALTER TABLE ads ADD COLUMN status TEXT",
+    "ALTER TABLE users ADD COLUMN moderation INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN approved INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN removed INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN reviews INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN likes INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN dislikes INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN active_boosts INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN total_boosts INTEGER DEFAULT 0",
+]
+for migration in migrations:
+    try:
+        cursor.execute(migration)
+        db.commit()
+    except Exception:
+        pass  # колонка уже существует
+
 
 # =========================================================
 # FSM
