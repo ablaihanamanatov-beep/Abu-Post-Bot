@@ -513,13 +513,6 @@ async def check_subscription(user_id: int):
         return False
 
 
-# =========================================================
-# WELCOME GIF
-# Замените ссылку на свой GIF (URL или Telegram file_id)
-# =========================================================
-
-WELCOME_PHOTO = "https://raw.githubusercontent.com/ablaihanamanatov-beep/Abu-Post-Bot/%40Post_FreeFireBot/welcome.jpeg"
-
 WELCOME_TEXT = (
     "🤖 <b>Добро пожаловать</b> 🤖\n\n"
     "😐 <b>Возможности:</b>\n\n"
@@ -544,16 +537,14 @@ async def start_command(message: Message, state: FSMContext):
     create_user(message.from_user)
 
     if not await check_subscription(message.from_user.id):
-        await message.answer_photo(
-            photo=WELCOME_PHOTO,
-            caption=WELCOME_TEXT,
+        await message.answer(
+            WELCOME_TEXT,
             reply_markup=subscribe_keyboard()
         )
         return
 
-    await message.answer_photo(
-        photo=WELCOME_PHOTO,
-        caption=WELCOME_TEXT,
+    await message.answer(
+        WELCOME_TEXT,
         reply_markup=main_menu_keyboard()
     )
 
