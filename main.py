@@ -25,6 +25,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
     Message,
     CallbackQuery,
+    ErrorEvent,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
@@ -979,8 +980,8 @@ async def publish_advertisement(callback: CallbackQuery, state: FSMContext):
 # =========================================================
 
 @dp.error()
-async def global_error_handler(event, exception):
-    logging.exception(exception)
+async def global_error_handler(event: ErrorEvent):
+    logging.exception("Ошибка:", exc_info=event.exception)
     return True
 
 
