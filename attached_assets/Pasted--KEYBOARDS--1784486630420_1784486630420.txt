@@ -1,0 +1,342 @@
+# =====================================================
+# KEYBOARDS
+# =====================================================
+
+def subscribe_keyboard():
+    builder = InlineKeyboardBuilder()
+
+    builder.row(
+        InlineKeyboardButton(
+            text="📢 Подписаться",
+            url="https://t.me/shop_abu1"
+        )
+    )
+
+    builder.row(
+        InlineKeyboardButton(
+            text="✅ Проверить подписку",
+            callback_data="check_subscribe"
+        )
+    )
+
+    return builder.as_markup()
+
+
+def main_menu():
+    builder = InlineKeyboardBuilder()
+
+    builder.row(
+        InlineKeyboardButton(
+            text="📝 Создать объявление",
+            callback_data="create_ad"
+        )
+    )
+
+    builder.row(
+        InlineKeyboardButton(
+            text="📜 Правила",
+            callback_data="rules"
+        )
+    )
+
+    builder.row(
+        InlineKeyboardButton(
+            text="⭐ Отзывы",
+            callback_data="reviews"
+        )
+    )
+
+    builder.row(
+        InlineKeyboardButton(
+            text="ℹ️ Инфо",
+            callback_data="info"
+        )
+    )
+
+    builder.row(
+        InlineKeyboardButton(
+            text="👤 Профиль",
+            callback_data="profile"
+        )
+    )
+
+    return builder.as_markup()
+
+
+def games_keyboard():
+    builder = InlineKeyboardBuilder()
+
+    builder.button(
+        text="🔥 Free Fire",
+        callback_data="game_ff"
+    )
+
+    builder.button(
+        text="🔫 PUBG",
+        callback_data="game_pubg"
+    )
+
+    builder.button(
+        text="🎵 TikTok",
+        callback_data="game_tiktok"
+    )
+
+    builder.button(
+        text="⭐ Brawl Stars",
+        callback_data="game_bs"
+    )
+
+    builder.button(
+        text="⚽ FIFA",
+        callback_data="game_fifa"
+    )
+
+    builder.button(
+        text="🧱 Roblox",
+        callback_data="game_roblox"
+    )
+
+    builder.adjust(2)
+
+    return builder.as_markup()
+
+
+def access_keyboard():
+    builder = InlineKeyboardBuilder()
+
+    builder.button(
+        text="Google",
+        callback_data="access_google"
+    )
+
+    builder.button(
+        text="VK",
+        callback_data="access_vk"
+    )
+
+    builder.button(
+        text="X",
+        callback_data="access_x"
+    )
+
+    builder.button(
+        text="Facebook",
+        callback_data="access_facebook"
+    )
+
+    builder.button(
+        text="Почта",
+        callback_data="access_mail"
+    )
+
+    builder.adjust(2)
+
+    return builder.as_markup()
+
+
+def currency_keyboard():
+    builder = InlineKeyboardBuilder()
+
+    builder.button(
+        text="🇰🇬 Сом",
+        callback_data="currency_kgs"
+    )
+
+    builder.button(
+        text="🇰🇿 Тенге",
+        callback_data="currency_kzt"
+    )
+
+    builder.button(
+        text="🇹🇯 Сомони",
+        callback_data="currency_tjs"
+    )
+
+    builder.button(
+        text="🇷🇺 Рубль",
+        callback_data="currency_rub"
+    )
+
+    builder.adjust(2)
+
+    return builder.as_markup()
+
+
+def bank_keyboard():
+    builder = InlineKeyboardBuilder()
+
+    builder.button(
+        text="🏦 MBANK",
+        callback_data="bank_mbank"
+    )
+
+    builder.button(
+        text="🏦 T-Bank",
+        callback_data="bank_tbank"
+    )
+
+    builder.button(
+        text="🏦 ЮMoney",
+        callback_data="bank_yumoney"
+    )
+
+    builder.button(
+        text="🏦 О!Банк",
+        callback_data="bank_obank"
+    )
+
+    builder.button(
+        text="🏦 Сбер",
+        callback_data="bank_sber"
+    )
+
+    builder.button(
+        text="🏦 Kaspi",
+        callback_data="bank_kaspi"
+    )
+
+    builder.adjust(2)
+
+    return builder.as_markup()
+
+
+def preview_keyboard():
+    builder = InlineKeyboardBuilder()
+
+    builder.row(
+        InlineKeyboardButton(
+            text="✅ Опубликовать",
+            callback_data="publish_ad"
+        )
+    )
+
+    builder.row(
+        InlineKeyboardButton(
+            text="❌ Отмена",
+            callback_data="cancel_ad"
+        )
+    )
+
+    return builder.as_markup()
+
+
+def back_keyboard():
+    builder = InlineKeyboardBuilder()
+
+    builder.row(
+        InlineKeyboardButton(
+            text="🔙 Назад",
+            callback_data="back_menu"
+        )
+    )
+
+    return builder.as_markup()
+
+
+photo_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [
+            KeyboardButton(text="✅ Готово")
+        ],
+        [
+            KeyboardButton(text="❌ Отмена")
+        ]
+    ],
+    resize_keyboard=True
+)
+
+# =====================================================
+# SUBSCRIBE CHECK
+# =====================================================
+
+async def check_subscription(user_id: int) -> bool:
+    try:
+        member = await bot.get_chat_member(
+            chat_id=SUBSCRIBE_CHANNEL,
+            user_id=user_id
+        )
+
+        return member.status in (
+            "creator",
+            "administrator",
+            "member"
+        )
+
+    except TelegramBadRequest:
+        return False
+
+
+# =====================================================
+# START
+# =====================================================
+
+@dp.message(CommandStart())
+async def start(message: Message, state: FSMContext):
+
+    await state.clear()
+
+    add_user(message)
+
+    if not await check_subscription(message.from_user.id):
+
+        await message.answer(
+            "👋 <b>Добро пожаловать!</b>\n\n"
+            "Для использования бота необходимо "
+            "подписаться на наш канал.\n\n"
+            "После подписки нажмите кнопку "
+            "«✅ Проверить подписку».",
+            reply_markup=subscribe_keyboard()
+        )
+        return
+
+    await message.answer(
+        "🏠 <b>Главное меню</b>",
+        reply_markup=main_menu()
+    )
+
+
+# =====================================================
+# CHECK SUBSCRIBE
+# =====================================================
+
+@dp.callback_query(F.data == "check_subscribe")
+async def callback_check_subscribe(call: CallbackQuery):
+
+    if not await check_subscription(call.from_user.id):
+
+        await call.answer(
+            "Вы ещё не подписались.",
+            show_alert=True
+        )
+
+        await call.message.edit_text(
+            "❌ Вы еще не подписались на канал.",
+            reply_markup=subscribe_keyboard()
+        )
+        return
+
+    await call.message.edit_text(
+        "✅ Подписка успешно подтверждена!"
+    )
+
+    await call.message.answer(
+        "🏠 <b>Главное меню</b>",
+        reply_markup=main_menu()
+    )
+
+    await call.answer()
+
+
+# =====================================================
+# BACK
+# =====================================================
+
+@dp.callback_query(F.data == "back_menu")
+async def back_menu(call: CallbackQuery):
+
+    await call.message.edit_text(
+        "🏠 <b>Главное меню</b>",
+        reply_markup=main_menu()
+    )
+
+    await call.answer()
