@@ -1,68 +1,142 @@
-import os
+# =========================================================
+# main.py
+# Telegram Account Marketplace Bot
+# aiogram 3.22.0
+# =========================================================
+
 import asyncio
 import logging
+import os
 import sqlite3
-import threading
-from datetime import datetime
-from http.server import HTTPServer, BaseHTTPRequestHandler
 
-from dotenv import load_dotenv
+from datetime import datetime
+from threading import Thread
+
+from flask import Flask
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ChatMemberStatus, ParseMode
-from aiogram.filters import CommandStart, Command
+from aiogram.enums import ParseMode, ChatMemberStatus
+from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
+
 from aiogram.types import (
     Message,
     CallbackQuery,
-    InlineKeyboardMarkup,
     InlineKeyboardButton,
-    ReplyKeyboardMarkup,
+    InlineKeyboardMarkup,
     KeyboardButton,
-    InputMediaPhoto,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+    InputMediaPhoto
 )
 
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-# =========================
-# НАСТРОЙКИ
-# =========================
 
-load_dotenv()
+# =========================================================
+# CONFIG
+# =========================================================
 
-TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN")
 
-CHANNEL_USERNAME = "@shop_abu1"
-REVIEWS = "@otzyvabu"
-GUARANT = "@abu_ejje"
+SUBSCRIBE_CHANNEL = "@shop_abu1"
+
+POST_CHANNEL = "@shop_abu1"  # замените на ID или username вашего канала публикаций
+
+REVIEWS_CHANNEL = "@otzyvabu"
+
+SUPPORT_USERNAME = "@abu_ejje"
+
+RULES_USERNAME = "@abupravila"
+
 ABU_POST = "@Post_FreeFireBot"
-ADMIN_ID = 7954321223
+
+SELLERS = "Sellers Abu"
 
 
-# =========================
-# ЛОГИ
-# =========================
+# =========================================================
+# LOGGING
+# =========================================================
 
 logging.basicConfig(level=logging.INFO)
 
 
-# =========================
-# БД
-# =========================
+# =========================================================
+# BOT
+# =========================================================
 
-db = sqlite3.connect("abu_post.db", check_same_thread=False)
+bot = Bot(
+    token=BOT_TOKEN,
+    default=DefaultBotProperties(
+        parse_mode=ParseMode.HTML
+    )
+)
+
+dp = Dispatcher(
+    storage=MemoryStorage()
+)
+
+
+# =========================================================
+# FLASK KEEP ALIVE
+# =========================================================
+
+app = Flask(__name__)
+
+
+@app.route("/")
+def home():
+    return "Bot is alive"
+
+
+def flask_run():
+    app.run(
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", 8080))
+    )
+
+
+def keep_alive():
+    Thread(
+        target=flask_run,
+        daemon=True
+    ).start()
+
+
+# =========================================================
+# DATABASE
+# =========================================================
+
+db = sqlite3.connect(
+    "bot.db",
+    check_same_thread=False
+)
+
 cursor = db.cursor()
+
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users(
-    user_id INTEGER PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER UNIQUE,
     username TEXT,
-    reg_date TEXT,
-    posts INTEGER DEFAULT 0
+    first_name TEXT,
+    register_date TEXT,
+    ads_count INTEGER DEFAULT 0,
+    moderation INTEGER DEFAULT 0,
+    approved INTEGER DEFAULT 0,
+    removed INTEGER DEFAULT 0,
+    reviews INTEGER DEFAULT 0,
+    likes INTEGER DEFAULT 0,
+    dislikes INTEGER DEFAULT 0,
+    active_boosts INTEGER DEFAULT 0,
+    total_boosts INTEGER DEFAULT 0
 )
 """)
+
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS ads(
@@ -70,29 +144,43 @@ CREATE TABLE IF NOT EXISTS ads(
     user_id INTEGER,
     game TEXT,
     access TEXT,
-    price TEXT,
+    description TEXT,
+    price INTEGER,
     currency TEXT,
     bank TEXT,
-    description TEXT
+    created TEXT,
+    status TEXT
 )
 """)
 
+
 cursor.execute("""
-CREATE TABLE IF NOT EXISTS favorites(
+CREATE TABLE IF NOT EXISTS photos(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    ad_id INTEGER
+    ad_id INTEGER,
+    file_id TEXT
 )
 """)
+
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS reviews(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    text TEXT,
+    created TEXT
+)
+""")
+
 
 db.commit()
 
 
-# =========================
+# =========================================================
 # FSM
-# =========================
+# =========================================================
 
-class CreateAd(StatesGroup):
+class CreateAdvertisement(StatesGroup):
     game = State()
     photos = State()
     access = State()
@@ -102,701 +190,713 @@ class CreateAd(StatesGroup):
     bank = State()
     preview = State()
 
-class ComplaintState(StatesGroup):
-    waiting = State()
 
-class SignalState(StatesGroup):
-    waiting = State()
+# =========================================================
+# CONSTANTS
+# =========================================================
+
+GAMES = {
+    "freefire": "🔥 Free Fire",
+    "pubg": "🔫 PUBG",
+    "tiktok": "🎵 TikTok",
+    "brawlstars": "⭐ Brawl Stars",
+    "fifa": "⚽ FIFA",
+    "roblox": "🧱 Roblox"
+}
+
+ACCESS_TYPES = {
+    "google": "Google",
+    "vk": "VK",
+    "x": "X",
+    "facebook": "Facebook",
+    "mail": "Почта"
+}
+
+CURRENCIES = {
+    "kgs": "🇰🇬 Сом",
+    "kzt": "🇰🇿 Тенге",
+    "tjs": "🇹🇯 Сомони",
+    "rub": "🇷🇺 Рубль"
+}
+
+BANKS = {
+    "mbank": "🏦 MBANK",
+    "tbank": "🏦 T-Bank",
+    "yumoney": "🏦 ЮMoney",
+    "obank": "🏦 О!Банк",
+    "sber": "🏦 Сбер",
+    "kaspi": "🏦 Kaspi"
+}
 
 
-# =========================
-# БОТ
-# =========================
+# =========================================================
+# DATABASE FUNCTIONS
+# =========================================================
 
-bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-dp = Dispatcher(storage=MemoryStorage())
+def create_user(user):
+    cursor.execute(
+        "SELECT user_id FROM users WHERE user_id=?",
+        (user.id,)
+    )
+
+    if cursor.fetchone():
+        return
+
+    cursor.execute(
+        """
+        INSERT INTO users
+        (user_id, username, first_name, register_date)
+        VALUES (?, ?, ?, ?)
+        """,
+        (
+            user.id,
+            user.username,
+            user.first_name,
+            datetime.now().strftime("%d.%m.%Y %H:%M")
+        )
+    )
+
+    db.commit()
 
 
-# =========================
-# КЛАВИАТУРЫ
-# =========================
+def get_user(user_id):
+    cursor.execute(
+        "SELECT * FROM users WHERE user_id=?",
+        (user_id,)
+    )
+    return cursor.fetchone()
 
-subscribe_keyboard = InlineKeyboardMarkup(
-    inline_keyboard=[
-        [InlineKeyboardButton(text="📢 Подписаться", url="https://t.me/shop_abu1")],
-        [InlineKeyboardButton(text="✅ Проверить подписку", callback_data="check_sub")]
-    ]
-)
 
-main_menu = InlineKeyboardMarkup(
-    inline_keyboard=[
-        [InlineKeyboardButton(text="📝 Создать объявление", callback_data="create_ad")],
-        [
-            InlineKeyboardButton(text="🔍 Поиск", callback_data="search"),
-            InlineKeyboardButton(text="❤️ Избранное", callback_data="favorites")
-        ],
-        [
-            InlineKeyboardButton(text="👤 Профиль", callback_data="profile"),
-            InlineKeyboardButton(text="⭐ Отзывы", callback_data="reviews")
-        ],
-        [
-            InlineKeyboardButton(text="🔔 Сигнал", callback_data="signal"),
-            InlineKeyboardButton(text="🚨 Жалоба", callback_data="complaint")
-        ],
-        [
-            InlineKeyboardButton(text="📜 Правила", callback_data="rules"),
-            InlineKeyboardButton(text="ℹ️ Инфо", callback_data="info")
-        ]
-    ]
-)
+def update_publication_stat(user_id):
+    cursor.execute(
+        """
+        UPDATE users
+        SET ads_count = ads_count + 1
+        WHERE user_id=?
+        """,
+        (user_id,)
+    )
+    db.commit()
 
-games_keyboard = InlineKeyboardMarkup(
-    inline_keyboard=[
-        [InlineKeyboardButton(text="🔥 Free Fire", callback_data="game_Free Fire")],
-        [InlineKeyboardButton(text="🔫 PUBG", callback_data="game_PUBG")],
-        [InlineKeyboardButton(text="🎵 TikTok", callback_data="game_TikTok")],
-        [InlineKeyboardButton(text="⭐ Brawl Stars", callback_data="game_Brawl Stars")],
-        [InlineKeyboardButton(text="⚽ FIFA", callback_data="game_FIFA")],
-        [InlineKeyboardButton(text="🧱 Roblox", callback_data="game_Roblox")],
-        [InlineKeyboardButton(text="🎮 Другое", callback_data="game_Другое")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="back_menu")]
-    ]
-)
 
-access_keyboard = InlineKeyboardMarkup(
-    inline_keyboard=[
-        [InlineKeyboardButton(text="Google", callback_data="access_Google"),
-         InlineKeyboardButton(text="VK", callback_data="access_VK")],
-        [InlineKeyboardButton(text="Facebook", callback_data="access_Facebook"),
-         InlineKeyboardButton(text="X (Twitter)", callback_data="access_X")],
-        [InlineKeyboardButton(text="Apple ID", callback_data="access_Apple ID"),
-         InlineKeyboardButton(text="Другое", callback_data="access_Другое")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_ad")]
-    ]
-)
+def create_advertisement(user_id, game, access, description, price, currency, bank):
+    cursor.execute(
+        """
+        INSERT INTO ads
+        (user_id, game, access, description, price, currency, bank, created, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            user_id,
+            game,
+            access,
+            description,
+            price,
+            currency,
+            bank,
+            datetime.now().strftime("%d.%m.%Y %H:%M"),
+            "published"
+        )
+    )
+    db.commit()
+    return cursor.lastrowid
 
-currency_keyboard = InlineKeyboardMarkup(
-    inline_keyboard=[
-        [InlineKeyboardButton(text="🇰🇬 Сом", callback_data="currency_Сом")],
-        [InlineKeyboardButton(text="🇷🇺 Рубли", callback_data="currency_Рубли")],
-        [InlineKeyboardButton(text="🇹🇯 Сомони", callback_data="currency_Сомони")],
-        [InlineKeyboardButton(text="💵 Доллары", callback_data="currency_Доллары")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_ad")]
-    ]
-)
 
-bank_keyboard = InlineKeyboardMarkup(
-    inline_keyboard=[
-        [InlineKeyboardButton(text="🏦 Мбанк", callback_data="bank_Мбанк"),
-         InlineKeyboardButton(text="🏦 Т-Банк", callback_data="bank_Т-Банк")],
-        [InlineKeyboardButton(text="🏦 Сбер", callback_data="bank_Сбер"),
-         InlineKeyboardButton(text="💰 ЮMoney", callback_data="bank_ЮMoney")],
-        [InlineKeyboardButton(text="💳 Другое", callback_data="bank_Другое")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_ad")]
-    ]
-)
+def save_photo(ad_id, file_id):
+    cursor.execute(
+        "INSERT INTO photos (ad_id, file_id) VALUES (?, ?)",
+        (ad_id, file_id)
+    )
+    db.commit()
+
+
+def profile_text(user_id):
+    # Колонки: 0=id, 1=user_id, 2=username, 3=first_name, 4=register_date,
+    #          5=ads_count, 6=moderation, 7=approved, 8=removed, 9=reviews,
+    #          10=likes, 11=dislikes, 12=active_boosts, 13=total_boosts
+    user = get_user(user_id)
+
+    if not user:
+        return "❌ Пользователь не найден."
+
+    ads_count = user[5]
+    level = "Новый"
+    if ads_count >= 10:
+        level = "Продавец"
+    if ads_count >= 50:
+        level = "Опытный"
+    if ads_count >= 100:
+        level = "Профессионал"
+
+    return (
+        "📊 <b>Ваша статистика</b>\n\n"
+        "⚙️ <b>Профиль:</b>\n"
+        f"▸ Всего объявлений: {user[5]}\n"
+        f"▸ На модерации: {user[6]}\n"
+        f"▸ Регистрация: {user[4]}\n"
+        f"▸ Уровень: {level}\n\n"
+        "👤 <b>Репутация продавца:</b>\n"
+        f"▸ Одобрено: {user[7]}\n"
+        f"▸ Снято: {user[8]}\n"
+        f"▸ Отзывы: {user[9]}\n"
+        f"▸ Лайки: {user[10]}\n"
+        f"▸ Дизлайки: {user[11]}\n"
+        f"▸ Активные бусты: {user[12]}\n"
+        f"▸ Всего бустов: {user[13]}"
+    )
+
+
+# =========================================================
+# KEYBOARDS
+# =========================================================
+
+def subscribe_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text="📢 Подписаться",
+            url="https://t.me/shop_abu1"
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text="✅ Проверить подписку",
+            callback_data="check_subscription"
+        )
+    )
+    return builder.as_markup()
+
+
+def main_menu_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="📝 Создать объявление", callback_data="create_ad"))
+    builder.row(InlineKeyboardButton(text="📜 Правила", callback_data="rules"))
+    builder.row(InlineKeyboardButton(text="⭐ Отзывы", callback_data="reviews"))
+    builder.row(InlineKeyboardButton(text="ℹ️ Инфо", callback_data="info"))
+    builder.row(InlineKeyboardButton(text="👤 Профиль", callback_data="profile"))
+    return builder.as_markup()
+
+
+def games_keyboard():
+    builder = InlineKeyboardBuilder()
+    for key, value in GAMES.items():
+        builder.button(text=value, callback_data=f"game_{key}")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def access_keyboard():
+    builder = InlineKeyboardBuilder()
+    for key, value in ACCESS_TYPES.items():
+        builder.button(text=value, callback_data=f"access_{key}")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def currency_keyboard():
+    builder = InlineKeyboardBuilder()
+    for key, value in CURRENCIES.items():
+        builder.button(text=value, callback_data=f"currency_{key}")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def bank_keyboard():
+    builder = InlineKeyboardBuilder()
+    for key, value in BANKS.items():
+        builder.button(text=value, callback_data=f"bank_{key}")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def preview_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="✅ Опубликовать", callback_data="publish"))
+    builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="cancel"))
+    return builder.as_markup()
+
+
+def back_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back"))
+    return builder.as_markup()
+
 
 photo_keyboard = ReplyKeyboardMarkup(
-    keyboard=[[KeyboardButton(text="✅ Готово"), KeyboardButton(text="❌ Отмена")]],
+    keyboard=[
+        [KeyboardButton(text="✅ Готово")],
+        [KeyboardButton(text="❌ Отмена")]
+    ],
     resize_keyboard=True
 )
 
-cancel_reply = ReplyKeyboardMarkup(
-    keyboard=[[KeyboardButton(text="❌ Отмена")]],
-    resize_keyboard=True
-)
 
-remove_keyboard = ReplyKeyboardMarkup(
-    keyboard=[[KeyboardButton(text="‌")]],
-    resize_keyboard=True,
-    one_time_keyboard=True
-)
+# =========================================================
+# SUBSCRIPTION CHECK
+# =========================================================
 
-
-# =========================
-# ВСПОМОГАТЕЛЬНЫЕ
-# =========================
-
-async def is_subscribed(user_id: int) -> bool:
+async def check_subscription(user_id: int):
     try:
-        member = await bot.get_chat_member(CHANNEL_USERNAME, user_id)
-        return member.status in (
+        member = await bot.get_chat_member(
+            chat_id=SUBSCRIBE_CHANNEL,
+            user_id=user_id
+        )
+        return member.status in [
             ChatMemberStatus.MEMBER,
             ChatMemberStatus.ADMINISTRATOR,
-            ChatMemberStatus.CREATOR,
-        )
+            ChatMemberStatus.CREATOR
+        ]
     except Exception:
         return False
 
 
-async def send_main_menu(target, text="👋 Выберите действие:"):
-    """Отправляет главное меню (Message или CallbackQuery)."""
-    if isinstance(target, CallbackQuery):
-        try:
-            await target.message.edit_text(text, reply_markup=main_menu)
-        except Exception:
-            await target.message.answer(text, reply_markup=main_menu)
-    else:
-        await target.answer(text, reply_markup=main_menu)
-
-
-# =========================
-# START
-# =========================
+# =========================================================
+# START COMMAND
+# =========================================================
 
 @dp.message(CommandStart())
-async def start(message: Message):
-    cursor.execute("SELECT * FROM users WHERE user_id=?", (message.from_user.id,))
-    if not cursor.fetchone():
-        cursor.execute(
-            "INSERT INTO users(user_id, username, reg_date) VALUES(?,?,?)",
-            (
-                message.from_user.id,
-                message.from_user.username,
-                datetime.now().strftime("%d.%m.%Y %H:%M")
-            )
-        )
-        db.commit()
+async def start_command(message: Message, state: FSMContext):
+    await state.clear()
+    create_user(message.from_user)
 
-    if not await is_subscribed(message.from_user.id):
+    if not await check_subscription(message.from_user.id):
         await message.answer(
-            "👋 Добро пожаловать!\n\n"
-            "Для использования бота необходимо подписаться на канал.\n\n"
-            "После подписки нажмите кнопку ниже.",
-            reply_markup=subscribe_keyboard
+            "👋 <b>Добро пожаловать!</b>\n\n"
+            "Для использования бота необходимо "
+            "подписаться на наш канал.\n\n"
+            "После подписки нажмите кнопку "
+            "«✅ Проверить подписку».",
+            reply_markup=subscribe_keyboard()
         )
         return
 
     await message.answer(
-        "👋 Добро пожаловать в <b>Abu Post</b>\n\n"
-        "Выберите действие:",
-        reply_markup=main_menu
+        "🏠 <b>Главное меню</b>",
+        reply_markup=main_menu_keyboard()
     )
 
 
-@dp.callback_query(F.data == "check_sub")
-async def check_sub(callback: CallbackQuery):
-    if await is_subscribed(callback.from_user.id):
-        await callback.message.edit_text(
-            "✅ Подписка подтверждена!\n\n"
-            "👋 Добро пожаловать в <b>Abu Post</b>\n\n"
-            "Выберите действие:",
-            reply_markup=main_menu
+# =========================================================
+# CHECK SUBSCRIPTION BUTTON
+# =========================================================
+
+@dp.callback_query(F.data == "check_subscription")
+async def check_subscription_button(callback: CallbackQuery):
+    result = await check_subscription(callback.from_user.id)
+
+    if not result:
+        await callback.answer(
+            "❌ Вы еще не подписались на канал.",
+            show_alert=True
         )
-    else:
-        await callback.answer("❌ Вы не подписались.", show_alert=True)
+        return
+
+    await callback.message.edit_text(
+        "✅ <b>Подписка успешно подтверждена!</b>"
+    )
+    await callback.message.answer(
+        "🏠 <b>Главное меню</b>",
+        reply_markup=main_menu_keyboard()
+    )
+    await callback.answer()
 
 
-@dp.callback_query(F.data == "back_menu")
-async def back_menu(callback: CallbackQuery, state: FSMContext):
-    await state.clear()
-    await send_main_menu(callback)
+# =========================================================
+# BACK MENU
+# =========================================================
+
+@dp.callback_query(F.data == "back")
+async def back_menu(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "🏠 <b>Главное меню</b>",
+        reply_markup=main_menu_keyboard()
+    )
+    await callback.answer()
 
 
-# =========================
-# СОЗДАНИЕ ОБЪЯВЛЕНИЯ
-# =========================
+# =========================================================
+# PROFILE
+# =========================================================
+
+@dp.callback_query(F.data == "profile")
+async def profile_handler(callback: CallbackQuery):
+    text = profile_text(callback.from_user.id)
+    await callback.message.edit_text(text, reply_markup=back_keyboard())
+    await callback.answer()
+
+
+# =========================================================
+# RULES
+# =========================================================
+
+@dp.callback_query(F.data == "rules")
+async def rules_handler(callback: CallbackQuery):
+    text = (
+        "📜 <b>Правила публикации</b>\n\n"
+        "1. Запрещено публиковать ложную информацию "
+        "об аккаунте.\n\n"
+        "2. Используйте только реальные фотографии "
+        "аккаунта.\n\n"
+        "3. Цена должна соответствовать стоимости "
+        "аккаунта.\n\n"
+        "4. Запрещено размещать одинаковые объявления "
+        "несколько раз.\n\n"
+        "5. Не используйте нецензурную лексику.\n\n"
+        "6. После продажи аккаунта удалите или "
+        "обновите объявление.\n\n"
+        "7. Администрация вправе удалить объявление, "
+        "нарушающее правила.\n\n"
+        "⚠️ Публикуя объявление, вы соглашаетесь "
+        "соблюдать правила.\n\n"
+        f"📖 Полная версия правил:\n{RULES_USERNAME}"
+    )
+    await callback.message.edit_text(text, reply_markup=back_keyboard())
+    await callback.answer()
+
+
+# =========================================================
+# REVIEWS
+# =========================================================
+
+@dp.callback_query(F.data == "reviews")
+async def reviews_handler(callback: CallbackQuery):
+    await callback.message.edit_text(
+        f"⭐ <b>Отзывы</b>\n\n{REVIEWS_CHANNEL}",
+        reply_markup=back_keyboard()
+    )
+    await callback.answer()
+
+
+# =========================================================
+# INFO
+# =========================================================
+
+@dp.callback_query(F.data == "info")
+async def info_handler(callback: CallbackQuery):
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="📢 Канал", url="https://t.me/shop_abu1"))
+    builder.row(InlineKeyboardButton(text="👨‍💻 Поддержка", url=f"https://t.me/{SUPPORT_USERNAME.lstrip('@')}"))
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back"))
+
+    await callback.message.edit_text(
+        "ℹ️ <b>Информация</b>\n\n"
+        "Выберите раздел.",
+        reply_markup=builder.as_markup()
+    )
+    await callback.answer()
+
+
+# =========================================================
+# CREATE AD START
+# =========================================================
 
 @dp.callback_query(F.data == "create_ad")
-async def create_ad(callback: CallbackQuery, state: FSMContext):
+async def create_ad_start(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    await callback.message.edit_text("🎮 Выберите игру:", reply_markup=games_keyboard)
-    await state.set_state(CreateAd.game)
+    await state.set_state(CreateAdvertisement.game)
+    await callback.message.edit_text(
+        "🎮 <b>Выберите игру:</b>",
+        reply_markup=games_keyboard()
+    )
+    await callback.answer()
 
 
-@dp.callback_query(F.data.startswith("game_"))
-async def select_game(callback: CallbackQuery, state: FSMContext):
-    game = callback.data.replace("game_", "")
-    await state.update_data(game=game, photos=[])
+# =========================================================
+# GAME SELECT
+# =========================================================
+
+@dp.callback_query(CreateAdvertisement.game, F.data.startswith("game_"))
+async def game_selected(callback: CallbackQuery, state: FSMContext):
+    game_key = callback.data.replace("game_", "")
+    game_name = GAMES.get(game_key, "Неизвестная игра")
+
+    await state.update_data(game=game_name, photos=[])
+    await state.set_state(CreateAdvertisement.photos)
+
+    await callback.message.delete()
     await callback.message.answer(
-        "📷 Отправьте от 1 до 12 фотографий.\n\n"
-        "После загрузки нажмите «✅ Готово».",
+        "📷 <b>Отправьте от 1 до 12 фотографий.</b>\n\n"
+        "После загрузки нажмите кнопку «✅ Готово».",
         reply_markup=photo_keyboard
     )
-    await callback.message.delete()
-    await state.set_state(CreateAd.photos)
+    await callback.answer()
 
 
-@dp.message(CreateAd.photos, F.photo)
-async def get_photo(message: Message, state: FSMContext):
+# =========================================================
+# RECEIVE PHOTOS
+# =========================================================
+
+@dp.message(CreateAdvertisement.photos, F.photo)
+async def receive_ad_photo(message: Message, state: FSMContext):
     data = await state.get_data()
     photos = data.get("photos", [])
-    if len(photos) < 12:
-        photos.append(message.photo[-1].file_id)
-        await state.update_data(photos=photos)
-        await message.answer(f"📷 Фото добавлено ({len(photos)}/12). Ещё или «✅ Готово».")
-    else:
-        await message.answer("❗ Максимум 12 фотографий. Нажмите «✅ Готово».")
 
-
-@dp.message(CreateAd.photos, F.text == "✅ Готово")
-async def photos_done(message: Message, state: FSMContext):
-    data = await state.get_data()
-    photos = data.get("photos", [])
-    if not photos:
-        await message.answer("❌ Добавьте хотя бы 1 фото.")
+    if len(photos) >= 12:
+        await message.answer("❌ Максимум можно отправить 12 фотографий.")
         return
-    await message.answer("🔑 Выберите тип доступа:", reply_markup=access_keyboard)
-    await state.set_state(CreateAd.access)
+
+    photos.append(message.photo[-1].file_id)
+    await state.update_data(photos=photos)
+    await message.answer(f"✅ Фото добавлено: {len(photos)}/12")
 
 
-@dp.message(CreateAd.photos, F.text == "❌ Отмена")
-async def cancel_from_photos(message: Message, state: FSMContext):
+# =========================================================
+# PHOTO CANCEL
+# =========================================================
+
+@dp.message(CreateAdvertisement.photos, F.text == "❌ Отмена")
+async def cancel_photo_upload(message: Message, state: FSMContext):
     await state.clear()
-    await message.answer("❌ Создание отменено.", reply_markup=remove_keyboard)
-    await message.answer("👋 Выберите действие:", reply_markup=main_menu)
-
-
-@dp.callback_query(F.data.startswith("access_"))
-async def select_access(callback: CallbackQuery, state: FSMContext):
-    access = callback.data.replace("access_", "")
-    await state.update_data(access=access)
-    await callback.message.edit_text(
-        "💰 Введите цену аккаунта:",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_ad")]]
-        )
+    await message.answer(
+        "❌ Создание объявления отменено.",
+        reply_markup=ReplyKeyboardRemove()
     )
-    await state.set_state(CreateAd.price)
+    await message.answer(
+        "🏠 Главное меню",
+        reply_markup=main_menu_keyboard()
+    )
 
 
-@dp.message(CreateAd.price)
-async def get_price(message: Message, state: FSMContext):
-    if message.text == "❌ Отмена":
-        await cancel_ad_handler(message, state)
+# =========================================================
+# PHOTO COMPLETE
+# =========================================================
+
+@dp.message(CreateAdvertisement.photos, F.text == "✅ Готово")
+async def photos_complete(message: Message, state: FSMContext):
+    data = await state.get_data()
+    photos = data.get("photos", [])
+
+    if len(photos) == 0:
+        await message.answer("❌ Сначала отправьте хотя бы одну фотографию.")
         return
-    await state.update_data(price=message.text)
-    await message.answer("📝 Напишите описание аккаунта:", reply_markup=cancel_reply)
-    await state.set_state(CreateAd.description)
+
+    await state.set_state(CreateAdvertisement.access)
+    await message.answer(
+        "🔑 <b>Выберите привязку:</b>",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    await message.answer(
+        "Выберите вариант:",
+        reply_markup=access_keyboard()
+    )
 
 
-@dp.message(CreateAd.description)
-async def get_description(message: Message, state: FSMContext):
-    if message.text == "❌ Отмена":
-        await cancel_ad_handler(message, state)
+# =========================================================
+# ACCESS SELECT
+# =========================================================
+
+@dp.callback_query(CreateAdvertisement.access, F.data.startswith("access_"))
+async def access_selected(callback: CallbackQuery, state: FSMContext):
+    access_key = callback.data.replace("access_", "")
+    access_name = ACCESS_TYPES.get(access_key, "Не указано")
+
+    await state.update_data(access=access_name)
+    await state.set_state(CreateAdvertisement.price)
+
+    await callback.message.edit_text(
+        "💰 <b>Введите цену аккаунта.</b>\n\n"
+        "Цена должна быть указана цифрами."
+    )
+    await callback.answer()
+
+
+# =========================================================
+# PRICE INPUT
+# =========================================================
+
+@dp.message(CreateAdvertisement.price)
+async def price_input(message: Message, state: FSMContext):
+    if not message.text.isdigit():
+        await message.answer("❌ Введите цену только цифрами.")
         return
-    await state.update_data(description=message.text)
-    await message.answer("💵 Выберите валюту:", reply_markup=currency_keyboard)
-    await state.set_state(CreateAd.currency)
+
+    await state.update_data(price=int(message.text))
+    await state.set_state(CreateAdvertisement.description)
+    await message.answer("📝 <b>Напишите описание аккаунта.</b>")
 
 
-@dp.callback_query(F.data.startswith("currency_"))
-async def select_currency(callback: CallbackQuery, state: FSMContext):
-    currency = callback.data.replace("currency_", "")
-    await state.update_data(currency=currency)
-    await callback.message.edit_text("🏦 Выберите способ оплаты:", reply_markup=bank_keyboard)
-    await state.set_state(CreateAd.bank)
+# =========================================================
+# DESCRIPTION INPUT
+# =========================================================
+
+@dp.message(CreateAdvertisement.description)
+async def description_input(message: Message, state: FSMContext):
+    description = message.text.strip()
+
+    if len(description) < 3:
+        await message.answer("❌ Описание слишком короткое.")
+        return
+
+    await state.update_data(description=description)
+    await state.set_state(CreateAdvertisement.currency)
+    await message.answer(
+        "💱 <b>Выберите валюту:</b>",
+        reply_markup=currency_keyboard()
+    )
 
 
-@dp.callback_query(F.data.startswith("bank_"))
-async def select_bank(callback: CallbackQuery, state: FSMContext):
-    bank = callback.data.replace("bank_", "")
-    await state.update_data(bank=bank)
+# =========================================================
+# CURRENCY SELECT
+# =========================================================
 
+@dp.callback_query(CreateAdvertisement.currency, F.data.startswith("currency_"))
+async def currency_selected(callback: CallbackQuery, state: FSMContext):
+    currency_key = callback.data.replace("currency_", "")
+    currency_name = CURRENCIES.get(currency_key, "Сом")
+
+    await state.update_data(currency=currency_name)
+    await state.set_state(CreateAdvertisement.bank)
+
+    await callback.message.edit_text(
+        "🏦 <b>Выберите банк оплаты:</b>",
+        reply_markup=bank_keyboard()
+    )
+    await callback.answer()
+
+
+# =========================================================
+# BANK SELECT
+# =========================================================
+
+@dp.callback_query(CreateAdvertisement.bank, F.data.startswith("bank_"))
+async def bank_selected(callback: CallbackQuery, state: FSMContext):
+    bank_key = callback.data.replace("bank_", "")
+    bank_name = BANKS.get(bank_key, "Не указан")
+
+    await state.update_data(bank=bank_name)
     data = await state.get_data()
 
     preview_text = (
-        f"📋 <b>Предпросмотр объявления:</b>\n\n"
-        f"🎮 Игра: <b>{data.get('game')}</b>\n"
-        f"🔑 Доступ: <b>{data.get('access')}</b>\n"
-        f"📝 Описание: {data.get('description')}\n"
-        f"💰 Цена: <b>{data.get('price')} {data.get('currency')}</b>\n"
-        f"🏦 Оплата: <b>{data.get('bank')}</b>\n\n"
-        f"Нажмите «✅ Опубликовать» для публикации."
+        "📋 <b>Предпросмотр объявления</b>\n\n"
+        f"🎮 Игра: {data['game']}\n"
+        f"🔑 Доступ: {data['access']}\n\n"
+        f"📝 Описание:\n"
+        f"{data['description']}\n\n"
+        f"💰 Цена: {data['price']} {data['currency']}\n"
+        f"💳 Оплата: {bank_name}"
     )
 
-    publish_keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Опубликовать", callback_data="publish_ad")],
-            [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_ad")]
-        ]
+    await state.set_state(CreateAdvertisement.preview)
+    await callback.message.delete()
+
+    await bot.send_photo(
+        chat_id=callback.from_user.id,
+        photo=data["photos"][0],
+        caption=preview_text,
+        reply_markup=preview_keyboard()
     )
-
-    await callback.message.edit_text(preview_text, reply_markup=publish_keyboard)
-    await state.set_state(CreateAd.preview)
+    await callback.answer()
 
 
-@dp.callback_query(F.data == "publish_ad")
-async def publish_ad(callback: CallbackQuery, state: FSMContext):
+# =========================================================
+# PREVIEW CANCEL
+# =========================================================
+
+@dp.callback_query(CreateAdvertisement.preview, F.data == "cancel")
+async def preview_cancel(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.delete()
+    await bot.send_message(callback.from_user.id, "❌ Создание объявления отменено.")
+    await bot.send_message(
+        callback.from_user.id,
+        "🏠 Главное меню",
+        reply_markup=main_menu_keyboard()
+    )
+    await callback.answer()
+
+
+# =========================================================
+# PUBLISH ADVERTISEMENT
+# =========================================================
+
+@dp.callback_query(CreateAdvertisement.preview, F.data == "publish")
+async def publish_advertisement(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    user = callback.from_user
-    username = f"@{user.username}" if user.username else f"ID: {user.id}"
+    user_id = callback.from_user.id
+
+    ad_id = create_advertisement(
+        user_id=user_id,
+        game=data["game"],
+        access=data["access"],
+        description=data["description"],
+        price=data["price"],
+        currency=data["currency"],
+        bank=data["bank"]
+    )
+
+    for photo in data["photos"]:
+        save_photo(ad_id, photo)
+
+    update_publication_stat(user_id)
+
+    username = (
+        f"@{callback.from_user.username}"
+        if callback.from_user.username
+        else callback.from_user.full_name
+    )
 
     caption = (
-        f"🎮 <b>{data['game'].upper()}</b>\n\n"
+        f"🎮🔥 <b>{data['game'].upper()}</b> 🎮🔥\n\n"
         f"➡️ Доступ: {data['access']}\n"
-        f"💰 Цена: {data['price']} {data['currency']}\n"
-        f"🏦 Оплата: {data['bank']}\n\n"
-        f"📝 {data['description']}\n\n"
+        f"➡️ Цена: {data['price']} {data['currency']}\n"
+        f"➡️ Оплата: {data['bank']}\n\n"
+        f"📝 <b>Описание:</b>\n"
+        f"{data['description']}\n\n"
         f"✍️ Писать — {username}\n\n"
-        f"💬 Отзывы: {REVIEWS}\n"
-        f"✅ Гарант: {GUARANT}\n"
-        f"📢 Abu Post: {ABU_POST}\n\n"
-        f"🧑‍💻 𝙎𝙚𝙡𝙡𝙚𝙧𝙨 𝘼𝙗𝙪 🧑‍💻"
+        f"💬 Отзывы\n"
+        f"{REVIEWS_CHANNEL}\n\n"
+        f"✅ Гарант сделки\n"
+        f"{SUPPORT_USERNAME}\n\n"
+        f"📢 Abu Post\n"
+        f"{ABU_POST}\n\n"
+        f"🧑‍💼 {SELLERS}"
     )
 
-    photos = data.get("photos", [])
-
-    try:
-        if len(photos) == 1:
-            await bot.send_photo(
-                chat_id=CHANNEL_USERNAME,
-                photo=photos[0],
-                caption=caption
-            )
+    media = []
+    for index, photo in enumerate(data["photos"]):
+        if index == 0:
+            media.append(InputMediaPhoto(media=photo, caption=caption))
         else:
-            media = [InputMediaPhoto(media=photos[0], caption=caption)]
-            for photo in photos[1:]:
-                media.append(InputMediaPhoto(media=photo))
-            await bot.send_media_group(chat_id=CHANNEL_USERNAME, media=media)
+            media.append(InputMediaPhoto(media=photo))
 
-        cursor.execute(
-            "INSERT INTO ads(user_id, game, access, price, currency, bank, description) VALUES(?,?,?,?,?,?,?)",
-            (user.id, data["game"], data["access"], data["price"], data["currency"], data["bank"], data["description"])
-        )
-        cursor.execute("UPDATE users SET posts = posts + 1 WHERE user_id = ?", (user.id,))
-        db.commit()
-
-        await callback.message.edit_text(
-            "✅ Объявление опубликовано!\n\nВыберите действие:",
-            reply_markup=main_menu
-        )
-    except Exception as e:
-        logging.error(f"Ошибка публикации: {e}")
-        await callback.message.edit_text(
-            f"❌ Ошибка при публикации: {e}\n\nПопробуйте позже.",
-            reply_markup=main_menu
-        )
+    await bot.send_media_group(chat_id=POST_CHANNEL, media=media)
 
     await state.clear()
+    await callback.message.delete()
 
-
-@dp.callback_query(F.data == "cancel_ad")
-async def cancel_ad_callback(callback: CallbackQuery, state: FSMContext):
-    await state.clear()
-    await callback.message.edit_text("❌ Создание отменено.\n\nВыберите действие:", reply_markup=main_menu)
-
-
-async def cancel_ad_handler(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer("❌ Создание отменено.", reply_markup=remove_keyboard)
-    await message.answer("👋 Выберите действие:", reply_markup=main_menu)
-
-
-# =========================
-# ПРОФИЛЬ
-# =========================
-
-@dp.callback_query(F.data == "profile")
-async def profile(callback: CallbackQuery):
-    user = callback.from_user
-    cursor.execute("SELECT posts, reg_date FROM users WHERE user_id=?", (user.id,))
-    result = cursor.fetchone()
-    posts = result[0] if result else 0
-    reg_date = result[1] if result else "—"
-
-    await callback.message.edit_text(
-        f"👤 <b>Мой профиль</b>\n\n"
-        f"🆔 ID: <code>{user.id}</code>\n"
-        f"👤 Username: @{user.username or '—'}\n"
-        f"📅 Регистрация: {reg_date}\n"
-        f"📢 Объявлений: {posts}\n"
-        f"⭐ Репутация: новая",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="back_menu")]]
-        )
-    )
-
-
-# =========================
-# ОТЗЫВЫ
-# =========================
-
-@dp.callback_query(F.data == "reviews")
-async def reviews(callback: CallbackQuery):
-    await callback.message.edit_text(
-        f"⭐ <b>Отзывы</b>\n\n"
-        f"Все отзывы о продавцах и покупателях:\n{REVIEWS}",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="back_menu")]]
-        )
-    )
-
-
-# =========================
-# ПРАВИЛА
-# =========================
-
-@dp.callback_query(F.data == "rules")
-async def rules(callback: CallbackQuery):
-    await callback.message.edit_text(
-        "📜 <b>Правила Abu Post</b>\n\n"
-        "1. Запрещено продавать ворованные аккаунты.\n"
-        "2. Используйте гаранта при крупных сделках.\n"
-        "3. Сохраняйте доказательства сделок.\n"
-        "4. Мошенничество → бан навсегда.\n"
-        "5. Администрация не несёт ответственности за сделки без гаранта.\n\n"
-        f"✅ Гарант: {GUARANT}",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="back_menu")]]
-        )
-    )
-
-
-# =========================
-# ИНФО
-# =========================
-
-@dp.callback_query(F.data == "info")
-async def info(callback: CallbackQuery):
-    await callback.message.edit_text(
-        f"ℹ️ <b>О Abu Post</b>\n\n"
-        f"Маркетплейс игровых аккаунтов.\n\n"
-        f"📢 Канал: {CHANNEL_USERNAME}\n"
-        f"⭐ Отзывы: {REVIEWS}\n"
-        f"✅ Гарант: {GUARANT}\n"
-        f"🤖 Бот: {ABU_POST}",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="back_menu")]]
-        )
-    )
-
-
-# =========================
-# ПОИСК
-# =========================
-
-@dp.callback_query(F.data == "search")
-async def search(callback: CallbackQuery):
-    cursor.execute(
-        "SELECT game, price, currency, bank FROM ads ORDER BY id DESC LIMIT 10"
-    )
-    ads = cursor.fetchall()
-
-    if not ads:
-        await callback.message.edit_text(
-            "🔍 Пока нет доступных объявлений.",
-            reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="back_menu")]]
-            )
-        )
-        return
-
-    text = "🔍 <b>Последние объявления:</b>\n\n"
-    for ad in ads:
-        text += f"🎮 {ad[0]} | 💰 {ad[1]} {ad[2]} | 🏦 {ad[3]}\n"
-
-    text += f"\n📢 Все объявления: {CHANNEL_USERNAME}"
-
-    await callback.message.edit_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="back_menu")]]
-        )
-    )
-
-
-# =========================
-# ИЗБРАННОЕ
-# =========================
-
-@dp.callback_query(F.data == "favorites")
-async def favorites(callback: CallbackQuery):
-    await callback.message.edit_text(
-        "❤️ <b>Избранное</b>\n\n"
-        "Функция в разработке. Скоро появится возможность сохранять понравившиеся аккаунты.",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="back_menu")]]
-        )
-    )
-
-
-# =========================
-# ЖАЛОБА
-# =========================
-
-@dp.callback_query(F.data == "complaint")
-async def complaint(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text(
-        "🚨 <b>Жалоба</b>\n\n"
-        "Напишите причину жалобы. Администратор рассмотрит её.",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="back_menu")]]
-        )
-    )
-    await state.set_state(ComplaintState.waiting)
-
-
-@dp.message(ComplaintState.waiting)
-async def save_complaint(message: Message, state: FSMContext):
-    user = message.from_user
-    username = f"@{user.username}" if user.username else f"ID: {user.id}"
-
+    await bot.send_message(user_id, "✅ <b>Ваше объявление успешно опубликовано.</b>")
     await bot.send_message(
-        ADMIN_ID,
-        f"🚨 <b>Новая жалоба</b>\n\n"
-        f"👤 Пользователь: {username}\n"
-        f"🆔 ID: {user.id}\n\n"
-        f"📝 Причина:\n{message.text}"
+        user_id,
+        "🏠 <b>Главное меню</b>",
+        reply_markup=main_menu_keyboard()
     )
-
-    await state.clear()
-    await message.answer("✅ Жалоба отправлена администратору.", reply_markup=remove_keyboard)
-    await message.answer("👋 Выберите действие:", reply_markup=main_menu)
+    await callback.answer()
 
 
-# =========================
-# СИГНАЛ
-# =========================
+# =========================================================
+# ERROR HANDLER
+# =========================================================
 
-@dp.callback_query(F.data == "signal")
-async def signal(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text(
-        "🔔 <b>Сигнал</b>\n\n"
-        "Напишите какой аккаунт вы ищете.\n\n"
-        "Например:\n"
-        "🎮 Free Fire, бюджет 500 сом, нужен Google-доступ",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="back_menu")]]
-        )
-    )
-    await state.set_state(SignalState.waiting)
+@dp.error()
+async def global_error_handler(event, exception):
+    logging.exception(exception)
+    return True
 
 
-@dp.message(SignalState.waiting)
-async def save_signal(message: Message, state: FSMContext):
-    user = message.from_user
-    username = f"@{user.username}" if user.username else f"ID: {user.id}"
-
-    await bot.send_message(
-        ADMIN_ID,
-        f"🔔 <b>Новый сигнал (запрос)</b>\n\n"
-        f"👤 Пользователь: {username}\n"
-        f"🆔 ID: {user.id}\n\n"
-        f"🔍 Ищет:\n{message.text}"
-    )
-
-    await state.clear()
-    await message.answer(
-        "✅ Сигнал отправлен! Если подходящий аккаунт появится — мы уведомим.",
-        reply_markup=remove_keyboard
-    )
-    await message.answer("👋 Выберите действие:", reply_markup=main_menu)
-
-
-# =========================
-# АДМИН
-# =========================
-
-@dp.message(Command("admin"))
-async def admin(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        await message.answer("❌ Доступ запрещён.")
-        return
-
-    cursor.execute("SELECT COUNT(*) FROM users")
-    users_count = cursor.fetchone()[0]
-
-    cursor.execute("SELECT COUNT(*) FROM ads")
-    ads_count = cursor.fetchone()[0]
-
-    admin_keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📋 Последние объявления", callback_data="admin_ads")],
-            [InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users")]
-        ]
-    )
-
-    await message.answer(
-        f"👮 <b>Abu Post Admin</b>\n\n"
-        f"👤 Пользователей: {users_count}\n"
-        f"📢 Объявлений: {ads_count}",
-        reply_markup=admin_keyboard
-    )
-
-
-@dp.callback_query(F.data == "admin_ads")
-async def admin_ads(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
-        return
-    cursor.execute("SELECT id, game, price, currency FROM ads ORDER BY id DESC LIMIT 5")
-    ads = cursor.fetchall()
-    text = "📋 <b>Последние 5 объявлений:</b>\n\n"
-    for ad in ads:
-        text += f"#{ad[0]} | 🎮 {ad[1]} | 💰 {ad[2]} {ad[3]}\n"
-    await callback.message.edit_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")]]
-        )
-    )
-
-
-@dp.callback_query(F.data == "admin_users")
-async def admin_users(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
-        return
-    cursor.execute("SELECT user_id, username, posts FROM users ORDER BY posts DESC LIMIT 10")
-    users = cursor.fetchall()
-    text = "👥 <b>Топ пользователей:</b>\n\n"
-    for u in users:
-        uname = f"@{u[1]}" if u[1] else f"ID:{u[0]}"
-        text += f"{uname} — {u[2]} объявл.\n"
-    await callback.message.edit_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")]]
-        )
-    )
-
-
-@dp.callback_query(F.data == "admin_back")
-async def admin_back(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
-        return
-    cursor.execute("SELECT COUNT(*) FROM users")
-    users_count = cursor.fetchone()[0]
-    cursor.execute("SELECT COUNT(*) FROM ads")
-    ads_count = cursor.fetchone()[0]
-    admin_keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📋 Последние объявления", callback_data="admin_ads")],
-            [InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users")]
-        ]
-    )
-    await callback.message.edit_text(
-        f"👮 <b>Abu Post Admin</b>\n\n"
-        f"👤 Пользователей: {users_count}\n"
-        f"📢 Объявлений: {ads_count}",
-        reply_markup=admin_keyboard
-    )
-
-
-# =========================
-# ЗАПУСК
-# =========================
-
-def start_health_server():
-    class HealthHandler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b"Abu Post Bot is running")
-        def log_message(self, format, *args):
-            pass
-
-    port = int(os.getenv("PORT", 8080))
-    server = HTTPServer(("0.0.0.0", port), HealthHandler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    print(f"✅ Health server started on port {port}")
-
+# =========================================================
+# START BOT
+# =========================================================
 
 async def main():
-    start_health_server()
-    print("🤖 Abu Post Bot запущен!")
-    await dp.start_polling(bot, drop_pending_updates=True)
+    keep_alive()
+    await bot.delete_webhook(drop_pending_updates=True)
+    logging.info("Bot started")
+    await dp.start_polling(bot)
 
+
+# =========================================================
+# RUN
+# =========================================================
 
 if __name__ == "__main__":
     asyncio.run(main())
