@@ -1,0 +1,387 @@
+# =========================================================
+# CONSTANTS
+# =========================================================
+
+
+GAMES = {
+
+    "freefire": "🔥 Free Fire",
+
+    "pubg": "🔫 PUBG",
+
+    "tiktok": "🎵 TikTok",
+
+    "brawlstars": "⭐ Brawl Stars",
+
+    "fifa": "⚽ FIFA",
+
+    "roblox": "🧱 Roblox"
+
+}
+
+
+ACCESS_TYPES = {
+
+    "google": "Google",
+
+    "vk": "VK",
+
+    "x": "X",
+
+    "facebook": "Facebook",
+
+    "mail": "Почта"
+
+}
+
+
+CURRENCIES = {
+
+    "kgs": "🇰🇬 Сом",
+
+    "kzt": "🇰🇿 Тенге",
+
+    "tjs": "🇹🇯 Сомони",
+
+    "rub": "🇷🇺 Рубль"
+
+}
+
+
+BANKS = {
+
+    "mbank": "🏦 MBANK",
+
+    "tbank": "🏦 T-Bank",
+
+    "yumoney": "🏦 ЮMoney",
+
+    "obank": "🏦 О!Банк",
+
+    "sber": "🏦 Сбер",
+
+    "kaspi": "🏦 Kaspi"
+
+}
+
+
+
+# =========================================================
+# DATABASE FUNCTIONS
+# =========================================================
+
+
+def create_user(user):
+
+    cursor.execute(
+        """
+        SELECT user_id
+        FROM users
+        WHERE user_id=?
+        """,
+        (
+            user.id,
+        )
+    )
+
+
+    result = cursor.fetchone()
+
+
+    if result:
+
+        return
+
+
+
+    cursor.execute(
+        """
+        INSERT INTO users
+        (
+            user_id,
+            username,
+            first_name,
+            register_date
+        )
+
+        VALUES
+        (
+            ?,
+            ?,
+            ?,
+            ?
+        )
+        """,
+
+        (
+
+            user.id,
+
+            user.username,
+
+            user.first_name,
+
+            datetime.now().strftime(
+                "%d.%m.%Y %H:%M"
+            )
+
+        )
+    )
+
+
+    db.commit()
+
+
+
+
+
+def get_user(user_id):
+
+    cursor.execute(
+        """
+        SELECT *
+        FROM users
+        WHERE user_id=?
+        """,
+
+        (
+            user_id,
+        )
+    )
+
+
+    return cursor.fetchone()
+
+
+
+
+
+def update_publication_stat(user_id):
+
+    cursor.execute(
+        """
+        UPDATE users
+
+        SET ads_count =
+        ads_count + 1
+
+        WHERE user_id=?
+        """,
+
+        (
+            user_id,
+        )
+    )
+
+
+    db.commit()
+
+
+
+
+
+def create_advertisement(
+
+        user_id,
+
+        game,
+
+        access,
+
+        description,
+
+        price,
+
+        currency,
+
+        bank
+
+):
+
+
+    cursor.execute(
+        """
+        INSERT INTO ads
+
+        (
+
+            user_id,
+
+            game,
+
+            access,
+
+            description,
+
+            price,
+
+            currency,
+
+            bank,
+
+            created,
+
+            status
+
+        )
+
+        VALUES
+
+        (
+
+            ?,
+
+            ?,
+
+            ?,
+
+            ?,
+
+            ?,
+
+            ?,
+
+            ?,
+
+            ?,
+
+            ?
+
+        )
+
+        """,
+
+        (
+
+            user_id,
+
+            game,
+
+            access,
+
+            description,
+
+            price,
+
+            currency,
+
+            bank,
+
+            datetime.now().strftime(
+                "%d.%m.%Y %H:%M"
+            ),
+
+            "published"
+
+        )
+
+    )
+
+
+    db.commit()
+
+
+    return cursor.lastrowid
+
+
+
+
+
+
+def save_photo(
+
+        ad_id,
+
+        file_id
+
+):
+
+
+    cursor.execute(
+        """
+        INSERT INTO photos
+
+        (
+
+            ad_id,
+
+            file_id
+
+        )
+
+        VALUES
+
+        (
+
+            ?,
+
+            ?
+
+        )
+
+        """,
+
+        (
+
+            ad_id,
+
+            file_id
+
+        )
+    )
+
+
+    db.commit()
+
+
+
+
+
+
+def profile_text(user_id):
+
+
+    user = get_user(
+        user_id
+    )
+
+
+    if not user:
+
+
+        return "❌ Пользователь не найден."
+
+
+
+    return (
+
+        "📊 <b>Ваша статистика</b>\n\n"
+
+        "⚙️ <b>Профиль:</b>\n"
+
+        f"▸ Всего объявлений: {user[6]}\n"
+
+        f"▸ На модерации: {user[7]}\n"
+
+        f"▸ Регистрация: {user[5]}\n"
+
+        "▸ Уровень: Новый\n\n"
+
+
+        "👤 <b>Репутация продавца:</b>\n"
+
+        f"▸ Одобрено: {user[8]}\n"
+
+        f"▸ Снято: {user[9]}\n"
+
+        f"▸ Отзывы: {user[10]}\n"
+
+        f"▸ Лайки: {user[11]}\n"
+
+        f"▸ Дизлайки: {user[12]}\n"
+
+        f"▸ Активные бусты: {user[13]}\n"
+
+        f"▸ Всего бустов: {user[14]}"
+
+    )
