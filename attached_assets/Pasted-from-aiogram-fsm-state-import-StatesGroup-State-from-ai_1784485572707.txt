@@ -1,0 +1,89 @@
+from aiogram.fsm.state import StatesGroup, State
+from aiogram.fsm.context import FSMContext
+from aiogram.types import (
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+)
+
+# ---------- FSM ----------
+
+class CreateAd(StatesGroup):
+    game = State()
+    photos = State()
+    access = State()
+    price = State()
+    description = State()
+    currency = State()
+    bank = State()
+    preview = State()
+
+
+# ---------- Клавиатуры ----------
+
+games_keyboard = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🔥 Free Fire", callback_data="game_Free Fire")
+        ],
+        [
+            InlineKeyboardButton(text="🔫 PUBG", callback_data="game_PUBG")
+        ],
+        [
+            InlineKeyboardButton(text="🎵 TikTok", callback_data="game_TikTok")
+        ],
+        [
+            InlineKeyboardButton(text="⭐ Brawl Stars", callback_data="game_Brawl Stars")
+        ],
+        [
+            InlineKeyboardButton(text="⚽ FIFA", callback_data="game_FIFA")
+        ],
+        [
+            InlineKeyboardButton(text="🧱 Roblox", callback_data="game_Roblox")
+        ],
+        [
+            InlineKeyboardButton(text="🔙 Назад", callback_data="back_menu")
+        ]
+    ]
+)
+
+photo_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [
+            KeyboardButton(text="✅ Готово"),
+            KeyboardButton(text="❌ Отмена")
+        ]
+    ],
+    resize_keyboard=True
+)
+
+
+@dp.callback_query(F.data == "create_ad")
+async def create_ad(callback: CallbackQuery, state: FSMContext):
+
+    await state.clear()
+
+    await callback.message.edit_text(
+        "🎮 Выберите игру:",
+        reply_markup=games_keyboard
+    )
+
+    await state.set_state(CreateAd.game)
+
+
+@dp.callback_query(F.data.startswith("game_"))
+async def select_game(callback: CallbackQuery, state: FSMContext):
+
+    game = callback.data.replace("game_", "")
+
+    await state.update_data(
+        game=game,
+        photos=[]
+    )
+
+    await callback.message.answer(
+        "📷 Отправьте от 1 до 12 фотографий.\n\n"
+        "После загрузки нажмите «✅ Готово».",
+        reply_markup=photo_keyboard
+    )
+
+    await state.set_state(CreateAd.photos)
