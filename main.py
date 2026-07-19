@@ -31,7 +31,8 @@ from aiogram.types import (
     KeyboardButton,
     ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
-    InputMediaPhoto
+    InputMediaPhoto,
+    URLInputFile
 )
 
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -540,19 +541,19 @@ async def start_command(message: Message, state: FSMContext):
     await state.clear()
     create_user(message.from_user)
 
-    if not await check_subscription(message.from_user.id):
-        await message.answer_animation(
-            animation=WELCOME_GIF,
-            caption=WELCOME_TEXT,
-            reply_markup=subscribe_keyboard()
-        )
-        return
+    keyboard = subscribe_keyboard() if not await check_subscription(message.from_user.id) else main_menu_keyboard()
 
-    await message.answer_animation(
-        animation=WELCOME_GIF,
-        caption=WELCOME_TEXT,
-        reply_markup=main_menu_keyboard()
-    )
+    try:
+        await message.answer_animation(
+            animation=URLInputFile(WELCOME_GIF, filename="welcome.gif"),
+            caption=WELCOME_TEXT,
+            reply_markup=keyboard
+        )
+    except Exception:
+        await message.answer(
+            WELCOME_TEXT,
+            reply_markup=keyboard
+        )
 
 
 # =========================================================
