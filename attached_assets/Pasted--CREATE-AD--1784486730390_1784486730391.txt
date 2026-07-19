@@ -1,0 +1,249 @@
+# =====================================================
+# CREATE AD
+# =====================================================
+
+@dp.callback_query(F.data == "create_ad")
+async def create_ad_menu(
+        call: CallbackQuery,
+        state: FSMContext
+):
+
+    await state.clear()
+
+    await state.set_state(CreateAd.game)
+
+    await call.message.edit_text(
+        "🎮 <b>Выберите игру:</b>",
+        reply_markup=games_keyboard()
+    )
+
+    await call.answer()
+
+
+# =====================================================
+# GAME SELECT
+# =====================================================
+
+@dp.callback_query(
+    CreateAd.game,
+    F.data.startswith("game_")
+)
+async def select_game(
+        call: CallbackQuery,
+        state: FSMContext
+):
+
+    game_key = call.data.split("_")[1]
+
+    game_name = GAMES[game_key]
+
+    await state.update_data(
+        game=game_name,
+        photos=[]
+    )
+
+    await state.set_state(CreateAd.photos)
+
+    await call.message.edit_text(
+        "📷 <b>Отправьте от 1 до 12 фотографий.</b>\n\n"
+        "После загрузки нажмите кнопку "
+        "<b>«✅ Готово»</b>.",
+    )
+
+    await call.message.answer(
+        "Ожидаю фотографии...",
+        reply_markup=photo_keyboard
+    )
+
+    await call.answer()
+
+
+# =====================================================
+# PHOTO RECEIVE
+# =====================================================
+
+@dp.message(
+    CreateAd.photos,
+    F.photo
+)
+async def receive_photo(
+        message: Message,
+        state: FSMContext
+):
+
+    data = await state.get_data()
+
+    photos = data.get("photos", [])
+
+    if len(photos) >= 12:
+
+        await message.answer(
+            "❌ Можно отправить максимум 12 фотографий."
+        )
+        return
+
+    photos.append(
+        message.photo[-1].file_id
+    )
+
+    await state.update_data(
+        photos=photos
+    )
+
+    await message.answer(
+        f"✅ Загружено фотографий: {len(photos)}/12"
+    )
+
+
+# =====================================================
+# WRONG FILE
+# =====================================================
+
+@dp.message(
+    CreateAd.photos
+)
+async def wrong_photo(
+        message: Message
+):
+
+    if message.text in (
+        "✅ Готово",
+        "❌ Отмена"
+    ):
+        return
+
+    await message.answer(
+        "❌ Отправьте фотографию."
+    )
+
+
+# =====================================================
+# CANCEL
+# =====================================================
+
+@dp.message(
+    CreateAd.photos,
+    F.text == "❌ Отмена"
+)
+async def cancel_create(
+        message: Message,
+        state: FSMContext
+):
+
+    await state.clear()
+
+    await message.answer(
+        "❌ Создание объявления отменено.",
+        reply_markup=ReplyKeyboardRemove()
+    )
+
+    await message.answer(
+        "🏠 Главное меню",
+        reply_markup=main_menu()
+    )
+
+
+# =====================================================
+# READY
+# =====================================================
+
+@dp.message(
+    CreateAd.photos,
+    F.text == "✅ Готово"
+)
+async def photos_ready(
+        message: Message,
+        state: FSMContext
+):
+
+    data = await state.get_data()
+
+    photos = data.get("photos", [])
+
+    if len(photos) == 0:
+
+        await message.answer(
+            "❌ Загрузите минимум одну фотографию."
+        )
+        return
+
+    await state.set_state(
+        CreateAd.access
+    )
+
+    await message.answer(
+        "Выберите привязку:",
+        reply_markup=ReplyKeyboardRemove()
+    )
+
+    await message.answer(
+        "🔑 <b>Выберите привязку</b>",
+        reply_markup=access_keyboard()
+    )
+
+
+# =====================================================
+# ACCESS
+# =====================================================
+
+@dp.callback_query(
+    CreateAd.access,
+    F.data.startswith("access_")
+)
+async def select_access(
+        call: CallbackQuery,
+        state: FSMContext
+):
+
+    access_key = call.data.replace(
+        "access_",
+        ""
+    )
+
+    access_name = ACCESSES[
+        access_key
+    ]
+
+    await state.update_data(
+        access=access_name
+    )
+
+    await state.set_state(
+        CreateAd.price
+    )
+
+    await call.message.edit_text(
+        "💰 <b>Введите цену аккаунта.</b>"
+    )
+
+    await call.answer()
+
+
+# =====================================================
+# PRICE
+# =====================================================
+
+@dp.message(CreateAd.price)
+async def input_price(
+        message: Message,
+        state: FSMContext
+):
+
+    if not message.text.isdigit():
+
+        await message.answer(
+            "❌ Цена должна состоять только из цифр."
+        )
+        return
+
+    await state.update_data(
+        price=message.text
+    )
+
+    await state.set_state(
+        CreateAd.description
+    )
+
+    await message.answer(
+        "📝 <b>Напишите описание аккаунта.</b>"
+    )

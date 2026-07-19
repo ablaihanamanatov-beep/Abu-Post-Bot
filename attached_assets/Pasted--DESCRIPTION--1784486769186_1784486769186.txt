@@ -1,0 +1,259 @@
+# =====================================================
+# DESCRIPTION
+# =====================================================
+
+@dp.message(CreateAd.description)
+async def input_description(
+        message: Message,
+        state: FSMContext
+):
+
+    text = message.text.strip()
+
+    if len(text) < 3:
+        await message.answer(
+            "❌ Описание слишком короткое."
+        )
+        return
+
+    if len(text) > 1000:
+        await message.answer(
+            "❌ Максимальная длина описания — 1000 символов."
+        )
+        return
+
+    await state.update_data(
+        description=text
+    )
+
+    await state.set_state(
+        CreateAd.currency
+    )
+
+    await message.answer(
+        "💱 <b>Выберите валюту.</b>",
+        reply_markup=currency_keyboard()
+    )
+
+
+# =====================================================
+# CURRENCY
+# =====================================================
+
+@dp.callback_query(
+    CreateAd.currency,
+    F.data.startswith("currency_")
+)
+async def choose_currency(
+        call: CallbackQuery,
+        state: FSMContext
+):
+
+    currency_key = call.data.replace(
+        "currency_",
+        ""
+    )
+
+    currency_name = CURRENCIES[currency_key]
+
+    await state.update_data(
+        currency=currency_name
+    )
+
+    await state.set_state(
+        CreateAd.bank
+    )
+
+    await call.message.edit_text(
+        "🏦 <b>Выберите банк оплаты.</b>",
+        reply_markup=bank_keyboard()
+    )
+
+    await call.answer()
+
+
+# =====================================================
+# BANK
+# =====================================================
+
+@dp.callback_query(
+    CreateAd.bank,
+    F.data.startswith("bank_")
+)
+async def choose_bank(
+        call: CallbackQuery,
+        state: FSMContext
+):
+
+    bank_key = call.data.replace(
+        "bank_",
+        ""
+    )
+
+    bank_name = BANKS[bank_key]
+
+    await state.update_data(
+        bank=bank_name
+    )
+
+    data = await state.get_data()
+
+    preview = (
+        "📋 <b>Предпросмотр объявления</b>\n\n"
+        f"🎮 <b>Игра:</b> {data['game']}\n"
+        f"🔑 <b>Доступ:</b> {data['access']}\n\n"
+        f"📝 <b>Описание:</b>\n"
+        f"{data['description']}\n\n"
+        f"💰 <b>Цена:</b> {data['price']} {data['currency']}\n"
+        f"💳 <b>Оплата:</b> {bank_name}"
+    )
+
+    await state.set_state(
+        CreateAd.preview
+    )
+
+    photos = data["photos"]
+
+    await call.message.delete()
+
+    await bot.send_photo(
+        chat_id=call.message.chat.id,
+        photo=photos[0],
+        caption=preview,
+        reply_markup=preview_keyboard()
+    )
+
+    await call.answer()
+
+
+# =====================================================
+# CANCEL PREVIEW
+# =====================================================
+
+@dp.callback_query(
+    CreateAd.preview,
+    F.data == "cancel_ad"
+)
+async def cancel_preview(
+        call: CallbackQuery,
+        state: FSMContext
+):
+
+    await state.clear()
+
+    await call.message.delete()
+
+    await bot.send_message(
+        chat_id=call.from_user.id,
+        text="❌ Создание объявления отменено."
+    )
+
+    await bot.send_message(
+        chat_id=call.from_user.id,
+        text="🏠 <b>Главное меню</b>",
+        reply_markup=main_menu()
+    )
+
+    await call.answer()
+
+
+# =====================================================
+# PUBLISH
+# =====================================================
+
+@dp.callback_query(
+    CreateAd.preview,
+    F.data == "publish_ad"
+)
+async def publish_ad(
+        call: CallbackQuery,
+        state: FSMContext
+):
+
+    data = await state.get_data()
+
+    ad_id = create_ad(
+        user_id=call.from_user.id,
+        game=data["game"],
+        access=data["access"],
+        description=data["description"],
+        price=data["price"],
+        currency=data["currency"],
+        bank=data["bank"]
+    )
+
+    for photo in data["photos"]:
+        add_photo(
+            ad_id,
+            photo
+        )
+
+    increase_ads(
+        call.from_user.id
+    )
+
+    username = (
+        f"@{call.from_user.username}"
+        if call.from_user.username
+        else call.from_user.full_name
+    )
+
+    caption = (
+        f"🎮 {data['game'].upper()} 🎮\n\n"
+        f"➡️ Доступ: {data['access']}\n"
+        f"➡️ Цена: {data['price']} {data['currency']}\n"
+        f"➡️ Оплата: {data['bank']}\n\n"
+        f"📝 Описание:\n"
+        f"{data['description']}\n\n"
+        f"✍️ Писать — {username}\n\n"
+        f"💬 Отзывы\n"
+        f"{REVIEWS}\n\n"
+        f"✅ Гарант сделки\n"
+        f"{GUARANT}\n\n"
+        f"📢 Abu Post\n"
+        f"{ABU_POST}\n\n"
+        f"🧑‍💼 Sellers Abu"
+    )
+
+    media = []
+
+    for index, photo in enumerate(data["photos"]):
+
+        if index == 0:
+
+            media.append(
+                InputMediaPhoto(
+                    media=photo,
+                    caption=caption
+                )
+            )
+
+        else:
+
+            media.append(
+                InputMediaPhoto(
+                    media=photo
+                )
+            )
+
+    await bot.send_media_group(
+        chat_id=POST_CHANNEL,
+        media=media
+    )
+
+    await state.clear()
+
+    await call.message.delete()
+
+    await bot.send_message(
+        call.from_user.id,
+        "✅ Ваше объявление успешно опубликовано."
+    )
+
+    await bot.send_message(
+        call.from_user.id,
+        "🏠 <b>Главное меню</b>",
+        reply_markup=main_menu()
+    )
+
+    await call.answer()
