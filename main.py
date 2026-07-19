@@ -472,6 +472,27 @@ async def check_subscription(user_id: int):
 
 
 # =========================================================
+# WELCOME GIF
+# Замените ссылку на свой GIF (URL или Telegram file_id)
+# =========================================================
+
+WELCOME_GIF = "https://media.giphy.com/media/l0K4mbH4lKBhAPFU4/giphy.gif"
+
+WELCOME_TEXT = (
+    "🤖 <b>Добро пожаловать</b> 🤖\n\n"
+    "😐 <b>Возможности:</b>\n\n"
+    "↪ Публикация объявлений\n"
+    "↪ Быстрый поиск аккаунтов\n"
+    "↪ Избранное и реакции\n"
+    "↪ Отзывы и репутация\n"
+    "↪ Фото и альбомы\n"
+    "↪ Бусты и топ-продвижение\n"
+    "↪ Поддержка 10 языков\n"
+    "↪ Уведомления о статусе"
+)
+
+
+# =========================================================
 # START COMMAND
 # =========================================================
 
@@ -481,18 +502,16 @@ async def start_command(message: Message, state: FSMContext):
     create_user(message.from_user)
 
     if not await check_subscription(message.from_user.id):
-        await message.answer(
-            "👋 <b>Добро пожаловать!</b>\n\n"
-            "Для использования бота необходимо "
-            "подписаться на наш канал.\n\n"
-            "После подписки нажмите кнопку "
-            "«✅ Проверить подписку».",
+        await message.answer_animation(
+            animation=WELCOME_GIF,
+            caption=WELCOME_TEXT,
             reply_markup=subscribe_keyboard()
         )
         return
 
-    await message.answer(
-        "🏠 <b>Главное меню</b>",
+    await message.answer_animation(
+        animation=WELCOME_GIF,
+        caption=WELCOME_TEXT,
         reply_markup=main_menu_keyboard()
     )
 
