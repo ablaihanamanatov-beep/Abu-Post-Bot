@@ -1,0 +1,341 @@
+# =========================================================
+# CHECK SUBSCRIPTION BUTTON
+# =========================================================
+
+
+@dp.callback_query(
+    F.data == "check_subscription"
+)
+async def check_subscription_button(
+
+        callback: CallbackQuery
+
+):
+
+
+    result = await check_subscription(
+
+        callback.from_user.id
+
+    )
+
+
+    if not result:
+
+
+        await callback.answer(
+
+            "❌ Вы еще не подписались на канал.",
+
+            show_alert=True
+
+        )
+
+
+        return
+
+
+
+    await callback.message.edit_text(
+
+        "✅ <b>Подписка успешно подтверждена!</b>"
+
+    )
+
+
+    await callback.message.answer(
+
+        "🏠 <b>Главное меню</b>",
+
+        reply_markup=main_menu_keyboard()
+
+    )
+
+
+    await callback.answer()
+
+
+
+
+
+# =========================================================
+# BACK MENU
+# =========================================================
+
+
+@dp.callback_query(
+    F.data == "back"
+)
+
+async def back_menu(
+
+        callback: CallbackQuery
+
+):
+
+
+    await callback.message.edit_text(
+
+        "🏠 <b>Главное меню</b>",
+
+        reply_markup=main_menu_keyboard()
+
+    )
+
+
+    await callback.answer()
+
+
+
+
+
+# =========================================================
+# PROFILE
+# =========================================================
+
+
+@dp.callback_query(
+    F.data == "profile"
+)
+
+async def profile_handler(
+
+        callback: CallbackQuery
+
+):
+
+
+    text = profile_text(
+
+        callback.from_user.id
+
+    )
+
+
+    await callback.message.edit_text(
+
+        text,
+
+        reply_markup=back_keyboard()
+
+    )
+
+
+    await callback.answer()
+
+
+
+
+
+# =========================================================
+# RULES
+# =========================================================
+
+
+@dp.callback_query(
+    F.data == "rules"
+)
+
+async def rules_handler(
+
+        callback: CallbackQuery
+
+):
+
+
+    text = (
+
+        "📜 <b>Правила публикации</b>\n\n"
+
+        "1. Запрещено публиковать ложную информацию "
+        "об аккаунте.\n\n"
+
+        "2. Используйте только реальные фотографии "
+        "аккаунта.\n\n"
+
+        "3. Цена должна соответствовать стоимости "
+        "аккаунта.\n\n"
+
+        "4. Запрещено размещать одинаковые объявления "
+        "несколько раз.\n\n"
+
+        "5. Не используйте нецензурную лексику.\n\n"
+
+        "6. После продажи аккаунта удалите или "
+        "обновите объявление.\n\n"
+
+        "7. Администрация вправе удалить объявление, "
+        "нарушающее правила.\n\n"
+
+        "⚠️ Публикуя объявление, вы соглашаетесь "
+        "соблюдать правила.\n\n"
+
+        f"📖 Полная версия правил:\n{RULES}"
+
+    )
+
+
+    await callback.message.edit_text(
+
+        text,
+
+        reply_markup=back_keyboard()
+
+    )
+
+
+    await callback.answer()
+
+
+
+
+
+# =========================================================
+# REVIEWS
+# =========================================================
+
+
+@dp.callback_query(
+    F.data == "reviews"
+)
+
+async def reviews_handler(
+
+        callback: CallbackQuery
+
+):
+
+
+    await callback.message.edit_text(
+
+        "⭐ <b>Отзывы</b>\n\n"
+
+        f"{REVIEWS_CHANNEL}",
+
+        reply_markup=back_keyboard()
+
+    )
+
+
+    await callback.answer()
+
+
+
+
+
+# =========================================================
+# INFO
+# =========================================================
+
+
+@dp.callback_query(
+    F.data == "info"
+)
+
+async def info_handler(
+
+        callback: CallbackQuery
+
+):
+
+
+    builder = InlineKeyboardBuilder()
+
+
+    builder.row(
+
+        InlineKeyboardButton(
+
+            text="📢 Канал",
+
+            url="https://t.me/shop_abu1"
+
+        )
+
+    )
+
+
+    builder.row(
+
+        InlineKeyboardButton(
+
+            text="👨‍💻 Поддержка",
+
+            url="https://t.me/abu_ejje"
+
+        )
+
+    )
+
+
+    builder.row(
+
+        InlineKeyboardButton(
+
+            text="🔙 Назад",
+
+            callback_data="back"
+
+        )
+
+    )
+
+
+
+    await callback.message.edit_text(
+
+        "ℹ️ <b>Информация</b>\n\n"
+
+        "Выберите раздел.",
+
+        reply_markup=builder.as_markup()
+
+    )
+
+
+    await callback.answer()
+
+
+
+
+
+# =========================================================
+# CREATE AD START
+# =========================================================
+
+
+@dp.callback_query(
+
+    F.data == "create_ad"
+
+)
+
+async def create_ad_start(
+
+        callback: CallbackQuery,
+
+        state: FSMContext
+
+):
+
+
+    await state.clear()
+
+
+    await state.set_state(
+
+        CreateAdvertisement.game
+
+    )
+
+
+    await callback.message.edit_text(
+
+        "🎮 <b>Выберите игру:</b>",
+
+        reply_markup=games_keyboard()
+
+    )
+
+
+    await callback.answer()
