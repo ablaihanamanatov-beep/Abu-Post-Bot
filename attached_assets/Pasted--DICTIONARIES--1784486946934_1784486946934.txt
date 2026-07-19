@@ -1,0 +1,291 @@
+# ===================================================
+# DICTIONARIES
+# ===================================================
+
+GAMES = {
+    "ff": "🔥 Free Fire",
+    "pubg": "🔫 PUBG",
+    "tiktok": "🎵 TikTok",
+    "bs": "⭐ Brawl Stars",
+    "fifa": "⚽ FIFA",
+    "roblox": "🧱 Roblox"
+}
+
+ACCESSES = {
+    "google": "Google",
+    "vk": "VK",
+    "x": "X",
+    "facebook": "Facebook",
+    "mail": "Почта"
+}
+
+CURRENCIES = {
+    "kgs": "🇰🇬 Сом",
+    "kzt": "🇰🇿 Тенге",
+    "tjs": "🇹🇯 Сомони",
+    "rub": "🇷🇺 Рубль"
+}
+
+BANKS = {
+    "mbank": "🏦 MBANK",
+    "tbank": "🏦 T-Bank",
+    "yumoney": "🏦 ЮMoney",
+    "obank": "🏦 О!Банк",
+    "sber": "🏦 Сбер",
+    "kaspi": "🏦 Kaspi"
+}
+
+# ===================================================
+# DATABASE FUNCTIONS
+# ===================================================
+
+def add_user(user):
+    cursor.execute(
+        "SELECT user_id FROM users WHERE user_id=?",
+        (user.id,)
+    )
+
+    if cursor.fetchone():
+        return
+
+    register_date = datetime.now().strftime("%d.%m.%Y %H:%M")
+
+    cursor.execute(
+        """
+        INSERT INTO users
+        (
+            user_id,
+            username,
+            first_name,
+            register_date
+        )
+        VALUES
+        (
+            ?, ?, ?, ?
+        )
+        """,
+        (
+            user.id,
+            user.username,
+            user.first_name,
+            register_date
+        )
+    )
+
+    cursor.execute(
+        """
+        INSERT INTO statistics
+        (
+            user_id
+        )
+        VALUES
+        (
+            ?
+        )
+        """,
+        (
+            user.id,
+        )
+    )
+
+    db.commit()
+
+
+def get_user(user_id: int):
+
+    cursor.execute(
+        "SELECT * FROM users WHERE user_id=?",
+        (user_id,)
+    )
+
+    return cursor.fetchone()
+
+
+def get_statistics(user_id: int):
+
+    cursor.execute(
+        "SELECT * FROM statistics WHERE user_id=?",
+        (user_id,)
+    )
+
+    return cursor.fetchone()
+
+
+def increase_publications(user_id: int):
+
+    cursor.execute(
+        """
+        UPDATE users
+        SET ads_count = ads_count + 1
+        WHERE user_id=?
+        """,
+        (
+            user_id,
+        )
+    )
+
+    cursor.execute(
+        """
+        UPDATE statistics
+        SET publications = publications + 1
+        WHERE user_id=?
+        """,
+        (
+            user_id,
+        )
+    )
+
+    db.commit()
+
+
+def save_ad(
+    user_id,
+    game,
+    access,
+    description,
+    price,
+    currency,
+    bank
+):
+
+    created = datetime.now().strftime("%d.%m.%Y %H:%M")
+
+    cursor.execute(
+        """
+        INSERT INTO ads
+        (
+            user_id,
+            game,
+            access,
+            description,
+            price,
+            currency,
+            bank,
+            created_at,
+            status
+        )
+        VALUES
+        (
+            ?,?,?,?,?,?,?,?,?
+        )
+        """,
+        (
+            user_id,
+            game,
+            access,
+            description,
+            price,
+            currency,
+            bank,
+            created,
+            "published"
+        )
+    )
+
+    db.commit()
+
+    return cursor.lastrowid
+
+
+def save_photo(
+    ad_id,
+    file_id
+):
+
+    cursor.execute(
+        """
+        INSERT INTO photos
+        (
+            ad_id,
+            file_id
+        )
+        VALUES
+        (
+            ?,?
+        )
+        """,
+        (
+            ad_id,
+            file_id
+        )
+    )
+
+    db.commit()
+
+
+def get_profile_text(user_id: int):
+
+    cursor.execute(
+        """
+        SELECT
+            ads_count,
+            register_date,
+            approved,
+            removed,
+            reviews,
+            likes,
+            dislikes,
+            active_boosts,
+            total_boosts
+        FROM users
+        WHERE user_id=?
+        """,
+        (
+            user_id,
+        )
+    )
+
+    user = cursor.fetchone()
+
+    cursor.execute(
+        """
+        SELECT moderation
+        FROM statistics
+        WHERE user_id=?
+        """,
+        (
+            user_id,
+        )
+    )
+
+    stat = cursor.fetchone()
+
+    moderation = 0
+
+    if stat:
+        moderation = stat[0]
+
+    if not user:
+        return "Профиль не найден."
+
+    level = "Новый"
+
+    if user[0] >= 10:
+        level = "Продавец"
+
+    if user[0] >= 50:
+        level = "Опытный"
+
+    if user[0] >= 100:
+        level = "Профессионал"
+
+    return (
+        "📊 <b>Ваша статистика</b>\n\n"
+
+        "⚙️ <b>Профиль</b>\n"
+
+        f"▸ Всего объявлений: {user[0]}\n"
+        f"▸ На модерации: {moderation}\n"
+        f"▸ Регистрация: {user[1]}\n"
+        f"▸ Уровень: {level}\n\n"
+
+        "👤 <b>Репутация продавца</b>\n"
+
+        f"▸ Одобрено: {user[2]}\n"
+        f"▸ Снято: {user[3]}\n"
+        f"▸ Отзывы: {user[4]}\n"
+        f"▸ Лайки: {user[5]}\n"
+        f"▸ Дизлайки: {user[6]}\n"
+        f"▸ Активные бусты: {user[7]}\n"
+        f"▸ Всего бустов: {user[8]}"
+    )
