@@ -514,6 +514,9 @@ async def check_subscription(user_id: int):
         return False
 
 
+# Кибerpunk-GIF для приветствия
+WELCOME_GIF = "https://media.giphy.com/media/xT9IgG50Lg7russbDa/giphy.gif"
+
 WELCOME_TEXT = (
     "🤖 <b>Добро пожаловать</b> 🤖\n\n"
     "😐 <b>Возможности:</b>\n\n"
@@ -538,14 +541,16 @@ async def start_command(message: Message, state: FSMContext):
     create_user(message.from_user)
 
     if not await check_subscription(message.from_user.id):
-        await message.answer(
-            WELCOME_TEXT,
+        await message.answer_animation(
+            animation=WELCOME_GIF,
+            caption=WELCOME_TEXT,
             reply_markup=subscribe_keyboard()
         )
         return
 
-    await message.answer(
-        WELCOME_TEXT,
+    await message.answer_animation(
+        animation=WELCOME_GIF,
+        caption=WELCOME_TEXT,
         reply_markup=main_menu_keyboard()
     )
 
