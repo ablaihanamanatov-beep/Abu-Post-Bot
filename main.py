@@ -421,12 +421,13 @@ def subscribe_keyboard():
 
 def main_menu_keyboard():
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="📝 Создать объявление", callback_data="create_ad"))
-    builder.row(InlineKeyboardButton(text="📜 Правила", callback_data="rules"))
-    builder.row(InlineKeyboardButton(text="⭐ Отзывы", callback_data="reviews"))
-    builder.row(InlineKeyboardButton(text="ℹ️ Инфо", callback_data="info"))
-    builder.row(InlineKeyboardButton(text="👤 Профиль", callback_data="profile"))
-    builder.row(InlineKeyboardButton(text="🌍 Язык / Language", callback_data="language"))
+    builder.button(text="📝 Создать объявление", callback_data="create_ad")
+    builder.button(text="👤 Профиль", callback_data="profile")
+    builder.button(text="📜 Правила", callback_data="rules")
+    builder.button(text="⭐ Отзывы", callback_data="reviews")
+    builder.button(text="ℹ️ Инфо", callback_data="info")
+    builder.button(text="🌍 Язык", callback_data="language")
+    builder.adjust(2)
     return builder.as_markup()
 
 
