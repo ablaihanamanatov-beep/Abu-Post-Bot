@@ -1,0 +1,335 @@
+# =========================================================
+# GAME SELECT
+# =========================================================
+
+
+@dp.callback_query(
+    CreateAdvertisement.game,
+    F.data.startswith("game_")
+)
+
+async def game_selected(
+
+        callback: CallbackQuery,
+
+        state: FSMContext
+
+):
+
+
+    game_key = callback.data.replace(
+
+        "game_",
+
+        ""
+
+    )
+
+
+    game_name = GAMES.get(
+
+        game_key,
+
+        "Неизвестная игра"
+
+    )
+
+
+    await state.update_data(
+
+        game=game_name,
+
+        photos=[]
+
+    )
+
+
+    await state.set_state(
+
+        CreateAdvertisement.photos
+
+    )
+
+
+    await callback.message.delete()
+
+
+    await callback.message.answer(
+
+        "📷 <b>Отправьте от 1 до 12 фотографий.</b>\n\n"
+
+        "После загрузки нажмите кнопку "
+
+        "«✅ Готово».",
+
+        reply_markup=photo_keyboard
+
+    )
+
+
+    await callback.answer()
+
+
+
+
+
+# =========================================================
+# RECEIVE PHOTOS
+# =========================================================
+
+
+@dp.message(
+
+    CreateAdvertisement.photos,
+
+    F.photo
+
+)
+
+async def receive_ad_photo(
+
+        message: Message,
+
+        state: FSMContext
+
+):
+
+
+    data = await state.get_data()
+
+
+    photos = data.get(
+
+        "photos",
+
+        []
+
+    )
+
+
+    if len(photos) >= 12:
+
+
+        await message.answer(
+
+            "❌ Максимум можно отправить 12 фотографий."
+
+        )
+
+
+        return
+
+
+
+
+    photos.append(
+
+        message.photo[-1].file_id
+
+    )
+
+
+    await state.update_data(
+
+        photos=photos
+
+    )
+
+
+    await message.answer(
+
+        f"✅ Фото добавлено: {len(photos)}/12"
+
+    )
+
+
+
+
+
+# =========================================================
+# PHOTO CANCEL
+# =========================================================
+
+
+@dp.message(
+
+    CreateAdvertisement.photos,
+
+    F.text == "❌ Отмена"
+
+)
+
+async def cancel_photo_upload(
+
+        message: Message,
+
+        state: FSMContext
+
+):
+
+
+    await state.clear()
+
+
+    await message.answer(
+
+        "❌ Создание объявления отменено.",
+
+        reply_markup=ReplyKeyboardRemove()
+
+    )
+
+
+    await message.answer(
+
+        "🏠 Главное меню",
+
+        reply_markup=main_menu_keyboard()
+
+    )
+
+
+
+
+
+# =========================================================
+# PHOTO COMPLETE
+# =========================================================
+
+
+@dp.message(
+
+    CreateAdvertisement.photos,
+
+    F.text == "✅ Готово"
+
+)
+
+async def photos_complete(
+
+        message: Message,
+
+        state: FSMContext
+
+):
+
+
+    data = await state.get_data()
+
+
+    photos = data.get(
+
+        "photos",
+
+        []
+
+    )
+
+
+    if len(photos) == 0:
+
+
+        await message.answer(
+
+            "❌ Сначала отправьте хотя бы одну фотографию."
+
+        )
+
+
+        return
+
+
+
+
+    await state.set_state(
+
+        CreateAdvertisement.access
+
+    )
+
+
+    await message.answer(
+
+        "🔑 <b>Выберите привязку:</b>",
+
+        reply_markup=ReplyKeyboardRemove()
+
+    )
+
+
+    await message.answer(
+
+        "Выберите вариант:",
+
+        reply_markup=access_keyboard()
+
+    )
+
+
+
+
+
+# =========================================================
+# ACCESS SELECT
+# =========================================================
+
+
+@dp.callback_query(
+
+    CreateAdvertisement.access,
+
+    F.data.startswith("access_")
+
+)
+
+async def access_selected(
+
+        callback: CallbackQuery,
+
+        state: FSMContext
+
+):
+
+
+    access_key = callback.data.replace(
+
+        "access_",
+
+        ""
+
+    )
+
+
+    access_name = ACCESS_TYPES.get(
+
+        access_key,
+
+        "Не указано"
+
+    )
+
+
+    await state.update_data(
+
+        access=access_name
+
+    )
+
+
+    await state.set_state(
+
+        CreateAdvertisement.price
+
+    )
+
+
+    await callback.message.edit_text(
+
+        "💰 <b>Введите цену аккаунта.</b>\n\n"
+
+        "Цена должна быть указана цифрами."
+
+    )
+
+
+    await callback.answer()
