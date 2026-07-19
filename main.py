@@ -1,27 +1,28 @@
 import os
-import sqlite3
+import asyncio
 import logging
+import sqlite3
 import threading
+from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from dotenv import load_dotenv
 
-from telegram import (
-    Update,
-    ReplyKeyboardMarkup,
+from aiogram import Bot, Dispatcher, F
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ChatMemberStatus, ParseMode
+from aiogram.filters import CommandStart, Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import (
+    Message,
+    CallbackQuery,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
-    InputMediaPhoto
-)
-
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    ConversationHandler,
-    ContextTypes,
-    filters
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+    InputMediaPhoto,
 )
 
 
@@ -33,14 +34,10 @@ load_dotenv()
 
 TOKEN = os.getenv("BOT_TOKEN")
 
-CHANNEL = "@shop_abu1"
-
+CHANNEL_USERNAME = "@shop_abu1"
 REVIEWS = "@otzyvabu"
-
 GUARANT = "@abu_ejje"
-
 ABU_POST = "@Post_FreeFireBot"
-
 ADMIN_ID = 7954321223
 
 
@@ -48,32 +45,24 @@ ADMIN_ID = 7954321223
 # ЛОГИ
 # =========================
 
-logging.basicConfig(
-    level=logging.INFO
-)
+logging.basicConfig(level=logging.INFO)
 
 
 # =========================
-# БАЗА ДАННЫХ
+# БД
 # =========================
 
-db = sqlite3.connect(
-    "abu_post.db",
-    check_same_thread=False
-)
-
+db = sqlite3.connect("abu_post.db", check_same_thread=False)
 cursor = db.cursor()
-
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users(
-    id INTEGER PRIMARY KEY,
-    user_id INTEGER UNIQUE,
+    user_id INTEGER PRIMARY KEY,
     username TEXT,
+    reg_date TEXT,
     posts INTEGER DEFAULT 0
 )
 """)
-
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS ads(
@@ -83,567 +72,439 @@ CREATE TABLE IF NOT EXISTS ads(
     access TEXT,
     price TEXT,
     currency TEXT,
-    payment TEXT,
+    bank TEXT,
     description TEXT
 )
 """)
 
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS favorites(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    ad_id INTEGER
+)
+""")
 
 db.commit()
 
 
 # =========================
-# СОСТОЯНИЯ ОБЪЯВЛЕНИЯ
+# FSM
 # =========================
 
-(
-    GAME,
-    PHOTOS,
-    ACCESS,
-    DESCRIPTION,
-    PRICE,
-    CURRENCY,
-    PAYMENT
-) = range(7)
+class CreateAd(StatesGroup):
+    game = State()
+    photos = State()
+    access = State()
+    price = State()
+    description = State()
+    currency = State()
+    bank = State()
+    preview = State()
 
+class ComplaintState(StatesGroup):
+    waiting = State()
 
-# =========================
-# МЕНЮ
-# =========================
-
-main_menu = ReplyKeyboardMarkup(
-    [
-        ["📢 Объявление"],
-        ["🔍 Поиск аккаунтов"],
-        ["🔔 Сигнал"],
-        ["🚨 Жалоба"],
-        ["❤️ Избранное"],
-        ["👤 Профиль"],
-        ["⭐ Отзывы"]
-    ],
-    resize_keyboard=True
-)
-
-
-games_menu = ReplyKeyboardMarkup(
-    [
-        ["🔥 Free Fire", "⭐ Brawl Stars"],
-        ["🔫 PUBG", "🧱 Roblox"],
-        ["⚽ FIFA", "🎮 Другое"]
-    ],
-    resize_keyboard=True
-)
-
-
-cancel_menu = ReplyKeyboardMarkup(
-    [
-        ["❌ Отменить"]
-    ],
-    resize_keyboard=True
-)
+class SignalState(StatesGroup):
+    waiting = State()
 
 
 # =========================
-# ПРОВЕРКА ПОДПИСКИ
+# БОТ
+# =========================
+
+bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+dp = Dispatcher(storage=MemoryStorage())
+
+
+# =========================
+# КЛАВИАТУРЫ
 # =========================
 
 subscribe_keyboard = InlineKeyboardMarkup(
-    [
+    inline_keyboard=[
+        [InlineKeyboardButton(text="📢 Подписаться", url="https://t.me/shop_abu1")],
+        [InlineKeyboardButton(text="✅ Проверить подписку", callback_data="check_sub")]
+    ]
+)
+
+main_menu = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [InlineKeyboardButton(text="📝 Создать объявление", callback_data="create_ad")],
         [
-            InlineKeyboardButton(
-                "📢 Подписаться",
-                url="https://t.me/shop_abu1"
-            )
+            InlineKeyboardButton(text="🔍 Поиск", callback_data="search"),
+            InlineKeyboardButton(text="❤️ Избранное", callback_data="favorites")
         ],
         [
-            InlineKeyboardButton(
-                "✅ Проверить подписку",
-                callback_data="check_sub"
-            )
+            InlineKeyboardButton(text="👤 Профиль", callback_data="profile"),
+            InlineKeyboardButton(text="⭐ Отзывы", callback_data="reviews")
+        ],
+        [
+            InlineKeyboardButton(text="🔔 Сигнал", callback_data="signal"),
+            InlineKeyboardButton(text="🚨 Жалоба", callback_data="complaint")
+        ],
+        [
+            InlineKeyboardButton(text="📜 Правила", callback_data="rules"),
+            InlineKeyboardButton(text="ℹ️ Инфо", callback_data="info")
         ]
     ]
 )
 
+games_keyboard = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [InlineKeyboardButton(text="🔥 Free Fire", callback_data="game_Free Fire")],
+        [InlineKeyboardButton(text="🔫 PUBG", callback_data="game_PUBG")],
+        [InlineKeyboardButton(text="🎵 TikTok", callback_data="game_TikTok")],
+        [InlineKeyboardButton(text="⭐ Brawl Stars", callback_data="game_Brawl Stars")],
+        [InlineKeyboardButton(text="⚽ FIFA", callback_data="game_FIFA")],
+        [InlineKeyboardButton(text="🧱 Roblox", callback_data="game_Roblox")],
+        [InlineKeyboardButton(text="🎮 Другое", callback_data="game_Другое")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="back_menu")]
+    ]
+)
 
-async def check_subscription(user_id, context):
+access_keyboard = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [InlineKeyboardButton(text="Google", callback_data="access_Google"),
+         InlineKeyboardButton(text="VK", callback_data="access_VK")],
+        [InlineKeyboardButton(text="Facebook", callback_data="access_Facebook"),
+         InlineKeyboardButton(text="X (Twitter)", callback_data="access_X")],
+        [InlineKeyboardButton(text="Apple ID", callback_data="access_Apple ID"),
+         InlineKeyboardButton(text="Другое", callback_data="access_Другое")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_ad")]
+    ]
+)
 
+currency_keyboard = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [InlineKeyboardButton(text="🇰🇬 Сом", callback_data="currency_Сом")],
+        [InlineKeyboardButton(text="🇷🇺 Рубли", callback_data="currency_Рубли")],
+        [InlineKeyboardButton(text="🇹🇯 Сомони", callback_data="currency_Сомони")],
+        [InlineKeyboardButton(text="💵 Доллары", callback_data="currency_Доллары")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_ad")]
+    ]
+)
+
+bank_keyboard = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [InlineKeyboardButton(text="🏦 Мбанк", callback_data="bank_Мбанк"),
+         InlineKeyboardButton(text="🏦 Т-Банк", callback_data="bank_Т-Банк")],
+        [InlineKeyboardButton(text="🏦 Сбер", callback_data="bank_Сбер"),
+         InlineKeyboardButton(text="💰 ЮMoney", callback_data="bank_ЮMoney")],
+        [InlineKeyboardButton(text="💳 Другое", callback_data="bank_Другое")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_ad")]
+    ]
+)
+
+photo_keyboard = ReplyKeyboardMarkup(
+    keyboard=[[KeyboardButton(text="✅ Готово"), KeyboardButton(text="❌ Отмена")]],
+    resize_keyboard=True
+)
+
+cancel_reply = ReplyKeyboardMarkup(
+    keyboard=[[KeyboardButton(text="❌ Отмена")]],
+    resize_keyboard=True
+)
+
+remove_keyboard = ReplyKeyboardMarkup(
+    keyboard=[[KeyboardButton(text="‌")]],
+    resize_keyboard=True,
+    one_time_keyboard=True
+)
+
+
+# =========================
+# ВСПОМОГАТЕЛЬНЫЕ
+# =========================
+
+async def is_subscribed(user_id: int) -> bool:
     try:
-        member = await context.bot.get_chat_member(
-            CHANNEL,
-            user_id
+        member = await bot.get_chat_member(CHANNEL_USERNAME, user_id)
+        return member.status in (
+            ChatMemberStatus.MEMBER,
+            ChatMemberStatus.ADMINISTRATOR,
+            ChatMemberStatus.CREATOR,
         )
-
-        return member.status in [
-            "member",
-            "administrator",
-            "creator"
-        ]
-
-    except Exception as e:
-
-        print("Ошибка проверки подписки:", e)
-
+    except Exception:
         return False
+
+
+async def send_main_menu(target, text="👋 Выберите действие:"):
+    """Отправляет главное меню (Message или CallbackQuery)."""
+    if isinstance(target, CallbackQuery):
+        try:
+            await target.message.edit_text(text, reply_markup=main_menu)
+        except Exception:
+            await target.message.answer(text, reply_markup=main_menu)
+    else:
+        await target.answer(text, reply_markup=main_menu)
 
 
 # =========================
 # START
 # =========================
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    user = update.effective_user
-
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO users
-        (
-            user_id,
-            username
+@dp.message(CommandStart())
+async def start(message: Message):
+    cursor.execute("SELECT * FROM users WHERE user_id=?", (message.from_user.id,))
+    if not cursor.fetchone():
+        cursor.execute(
+            "INSERT INTO users(user_id, username, reg_date) VALUES(?,?,?)",
+            (
+                message.from_user.id,
+                message.from_user.username,
+                datetime.now().strftime("%d.%m.%Y %H:%M")
+            )
         )
-        VALUES
-        (?,?)
-        """,
-        (
-            user.id,
-            user.username
-        )
-    )
+        db.commit()
 
-    db.commit()
-
-    if not await check_subscription(user.id, context):
-
-        await update.message.reply_text(
-            "❗ Для использования Abu Post подпишитесь на канал:",
+    if not await is_subscribed(message.from_user.id):
+        await message.answer(
+            "👋 Добро пожаловать!\n\n"
+            "Для использования бота необходимо подписаться на канал.\n\n"
+            "После подписки нажмите кнопку ниже.",
             reply_markup=subscribe_keyboard
         )
-
         return
 
-    await update.message.reply_text(
-        """
-🎮 Abu Post
-
-Добро пожаловать!
-
-Здесь можно покупать и продавать игровые аккаунты.
-""",
+    await message.answer(
+        "👋 Добро пожаловать в <b>Abu Post</b>\n\n"
+        "Выберите действие:",
         reply_markup=main_menu
     )
 
 
-# =========================
-# КНОПКА ПРОВЕРКИ
-# =========================
-
-async def check_sub_button(
-        update: Update,
-        context: ContextTypes.DEFAULT_TYPE):
-
-    query = update.callback_query
-
-    await query.answer()
-
-    user_id = query.from_user.id
-
-    if await check_subscription(user_id, context):
-
-        await query.message.delete()
-
-        await query.message.reply_text(
-            """
-✅ Подписка подтверждена!
-
-Добро пожаловать в Abu Post 🎮
-""",
+@dp.callback_query(F.data == "check_sub")
+async def check_sub(callback: CallbackQuery):
+    if await is_subscribed(callback.from_user.id):
+        await callback.message.edit_text(
+            "✅ Подписка подтверждена!\n\n"
+            "👋 Добро пожаловать в <b>Abu Post</b>\n\n"
+            "Выберите действие:",
             reply_markup=main_menu
         )
-
     else:
+        await callback.answer("❌ Вы не подписались.", show_alert=True)
 
-        await query.answer(
-            "❌ Вы ещё не подписались!",
-            show_alert=True
-        )
+
+@dp.callback_query(F.data == "back_menu")
+async def back_menu(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await send_main_menu(callback)
 
 
 # =========================
 # СОЗДАНИЕ ОБЪЯВЛЕНИЯ
 # =========================
 
-photo_done_menu = ReplyKeyboardMarkup(
-    [
-        ["✅ Готово"],
-        ["❌ Отменить"]
-    ],
-    resize_keyboard=True
-)
+@dp.callback_query(F.data == "create_ad")
+async def create_ad(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.edit_text("🎮 Выберите игру:", reply_markup=games_keyboard)
+    await state.set_state(CreateAd.game)
 
 
-access_menu = ReplyKeyboardMarkup(
-    [
-        ["Google", "VK"],
-        ["Facebook", "X"],
-        ["Apple ID", "Другое"]
-    ],
-    resize_keyboard=True
-)
-
-
-async def create_ad(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    await update.message.reply_text(
-        "🎮 Выберите игру:",
-        reply_markup=games_menu
+@dp.callback_query(F.data.startswith("game_"))
+async def select_game(callback: CallbackQuery, state: FSMContext):
+    game = callback.data.replace("game_", "")
+    await state.update_data(game=game, photos=[])
+    await callback.message.answer(
+        "📷 Отправьте от 1 до 12 фотографий.\n\n"
+        "После загрузки нажмите «✅ Готово».",
+        reply_markup=photo_keyboard
     )
-
-    return GAME
-
-
-async def choose_game(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    context.user_data["game"] = update.message.text
-    context.user_data["photos"] = []
-
-    await update.message.reply_text(
-        """
-📸 Отправьте от 2 до 10 фотографий аккаунта.
-
-После загрузки нажмите:
-✅ Готово
-
-""",
-        reply_markup=photo_done_menu
-    )
-
-    return PHOTOS
-
-
-async def get_photo(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    photos = context.user_data.get("photos", [])
-
-    if len(photos) >= 10:
-        return PHOTOS
-
-    photos.append(update.message.photo[-1].file_id)
-
-    context.user_data["photos"] = photos
-
-    return PHOTOS
-
-
-async def photos_done(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    photos = context.user_data.get("photos", [])
-
-    if len(photos) < 2:
-
-        await update.message.reply_text(
-            "❌ Нужно минимум 2 фотографии."
-        )
-
-        return PHOTOS
-
-    await update.message.reply_text(
-        "🔑 Выберите доступ:",
-        reply_markup=access_menu
-    )
-
-    return ACCESS
-
-
-async def cancel_ad(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    context.user_data.clear()
-
-    await update.message.reply_text(
-        "❌ Создание объявления отменено.",
-        reply_markup=main_menu
-    )
-
-    return ConversationHandler.END
-
-
-# =========================
-# ДАННЫЕ ОБЪЯВЛЕНИЯ
-# =========================
-
-currency_menu = ReplyKeyboardMarkup(
-    [
-        ["🇰🇬 Сом"],
-        ["🇷🇺 Рубли"],
-        ["🇹🇯 Сомони"],
-        ["💵 Доллары"]
-    ],
-    resize_keyboard=True
-)
-
-
-payment_menu = ReplyKeyboardMarkup(
-    [
-        ["🏦 Мбанк", "🏦 Т-Банк"],
-        ["🏦 Сбер", "💰 ЮMoney"],
-        ["💳 Другое"]
-    ],
-    resize_keyboard=True
-)
-
-
-async def choose_access(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    context.user_data["access"] = update.message.text
-
-    await update.message.reply_text(
-        "📝 Напишите описание аккаунта:",
-        reply_markup=ReplyKeyboardMarkup(
-            [["❌ Отменить"]],
-            resize_keyboard=True
-        )
-    )
-
-    return DESCRIPTION
-
-
-async def get_description(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    context.user_data["description"] = update.message.text
-
-    await update.message.reply_text(
-        "💰 Напишите цену:",
-        reply_markup=ReplyKeyboardMarkup(
-            [["❌ Отменить"]],
-            resize_keyboard=True
-        )
-    )
-
-    return PRICE
-
-
-async def get_price(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    context.user_data["price"] = update.message.text
-
-    await update.message.reply_text(
-        "💵 Выберите валюту:",
-        reply_markup=currency_menu
-    )
-
-    return CURRENCY
-
-
-async def get_currency(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    context.user_data["currency"] = update.message.text
-
-    await update.message.reply_text(
-        "💳 Выберите способ оплаты:",
-        reply_markup=payment_menu
-    )
-
-    return PAYMENT
-
-
-async def get_payment(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    context.user_data["payment"] = update.message.text
-
-    data = context.user_data
-
-    publish_menu = ReplyKeyboardMarkup(
-        [["✅ Опубликовать"], ["❌ Отменить"]],
-        resize_keyboard=True
-    )
-
-    await update.message.reply_text(
-        f"""
-📋 Предпросмотр объявления:
-
-🎮 Игра: {data.get('game', '')}
-🔑 Доступ: {data.get('access', '')}
-📝 Описание: {data.get('description', '')}
-💰 Цена: {data.get('price', '')} {data.get('currency', '')}
-💳 Оплата: {data.get('payment', '')}
-
-Нажмите «✅ Опубликовать» для публикации.
-""",
-        reply_markup=publish_menu
-    )
-
-    return ConversationHandler.END
-
-
-# =========================
-# ПУБЛИКАЦИЯ ОБЪЯВЛЕНИЯ
-# =========================
-
-async def publish_ad(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    data = context.user_data
-
-    if not data.get("game"):
-        await update.message.reply_text(
-            "❌ Нет данных объявления. Создайте новое.",
-            reply_markup=main_menu
-        )
+    await callback.message.delete()
+    await state.set_state(CreateAd.photos)
+
+
+@dp.message(CreateAd.photos, F.photo)
+async def get_photo(message: Message, state: FSMContext):
+    data = await state.get_data()
+    photos = data.get("photos", [])
+    if len(photos) < 12:
+        photos.append(message.photo[-1].file_id)
+        await state.update_data(photos=photos)
+        await message.answer(f"📷 Фото добавлено ({len(photos)}/12). Ещё или «✅ Готово».")
+    else:
+        await message.answer("❗ Максимум 12 фотографий. Нажмите «✅ Готово».")
+
+
+@dp.message(CreateAd.photos, F.text == "✅ Готово")
+async def photos_done(message: Message, state: FSMContext):
+    data = await state.get_data()
+    photos = data.get("photos", [])
+    if not photos:
+        await message.answer("❌ Добавьте хотя бы 1 фото.")
         return
+    await message.answer("🔑 Выберите тип доступа:", reply_markup=access_keyboard)
+    await state.set_state(CreateAd.access)
 
-    user = update.effective_user
 
-    username = (
-        f"@{user.username}"
-        if user.username
-        else "Без username"
+@dp.message(CreateAd.photos, F.text == "❌ Отмена")
+async def cancel_from_photos(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("❌ Создание отменено.", reply_markup=remove_keyboard)
+    await message.answer("👋 Выберите действие:", reply_markup=main_menu)
+
+
+@dp.callback_query(F.data.startswith("access_"))
+async def select_access(callback: CallbackQuery, state: FSMContext):
+    access = callback.data.replace("access_", "")
+    await state.update_data(access=access)
+    await callback.message.edit_text(
+        "💰 Введите цену аккаунта:",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_ad")]]
+        )
+    )
+    await state.set_state(CreateAd.price)
+
+
+@dp.message(CreateAd.price)
+async def get_price(message: Message, state: FSMContext):
+    if message.text == "❌ Отмена":
+        await cancel_ad_handler(message, state)
+        return
+    await state.update_data(price=message.text)
+    await message.answer("📝 Напишите описание аккаунта:", reply_markup=cancel_reply)
+    await state.set_state(CreateAd.description)
+
+
+@dp.message(CreateAd.description)
+async def get_description(message: Message, state: FSMContext):
+    if message.text == "❌ Отмена":
+        await cancel_ad_handler(message, state)
+        return
+    await state.update_data(description=message.text)
+    await message.answer("💵 Выберите валюту:", reply_markup=currency_keyboard)
+    await state.set_state(CreateAd.currency)
+
+
+@dp.callback_query(F.data.startswith("currency_"))
+async def select_currency(callback: CallbackQuery, state: FSMContext):
+    currency = callback.data.replace("currency_", "")
+    await state.update_data(currency=currency)
+    await callback.message.edit_text("🏦 Выберите способ оплаты:", reply_markup=bank_keyboard)
+    await state.set_state(CreateAd.bank)
+
+
+@dp.callback_query(F.data.startswith("bank_"))
+async def select_bank(callback: CallbackQuery, state: FSMContext):
+    bank = callback.data.replace("bank_", "")
+    await state.update_data(bank=bank)
+
+    data = await state.get_data()
+
+    preview_text = (
+        f"📋 <b>Предпросмотр объявления:</b>\n\n"
+        f"🎮 Игра: <b>{data.get('game')}</b>\n"
+        f"🔑 Доступ: <b>{data.get('access')}</b>\n"
+        f"📝 Описание: {data.get('description')}\n"
+        f"💰 Цена: <b>{data.get('price')} {data.get('currency')}</b>\n"
+        f"🏦 Оплата: <b>{data.get('bank')}</b>\n\n"
+        f"Нажмите «✅ Опубликовать» для публикации."
     )
 
-    caption = f"""
-🎮 {data['game'].upper()} 🎮
+    publish_keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Опубликовать", callback_data="publish_ad")],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_ad")]
+        ]
+    )
 
-➡️ Доступ: {data['access']}
-➡️ Цена: {data['price']} {data['currency']}
-➡️ Оплата: {data['payment']}
+    await callback.message.edit_text(preview_text, reply_markup=publish_keyboard)
+    await state.set_state(CreateAd.preview)
 
-✍️ Писать — {username}
 
-💬 Отзывы
-{REVIEWS}
+@dp.callback_query(F.data == "publish_ad")
+async def publish_ad(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    user = callback.from_user
+    username = f"@{user.username}" if user.username else f"ID: {user.id}"
 
-✅ Гарант сделки
-{GUARANT}
-
-📢 Abu Post
-{ABU_POST}
-
-🧑‍💻 𝙎𝙚𝙡𝙡𝙚𝙧𝙨 𝘼𝙗𝙪 🧑‍💻
-"""
+    caption = (
+        f"🎮 <b>{data['game'].upper()}</b>\n\n"
+        f"➡️ Доступ: {data['access']}\n"
+        f"💰 Цена: {data['price']} {data['currency']}\n"
+        f"🏦 Оплата: {data['bank']}\n\n"
+        f"📝 {data['description']}\n\n"
+        f"✍️ Писать — {username}\n\n"
+        f"💬 Отзывы: {REVIEWS}\n"
+        f"✅ Гарант: {GUARANT}\n"
+        f"📢 Abu Post: {ABU_POST}\n\n"
+        f"🧑‍💻 𝙎𝙚𝙡𝙡𝙚𝙧𝙨 𝘼𝙗𝙪 🧑‍💻"
+    )
 
     photos = data.get("photos", [])
 
-    if len(photos) < 2:
-
-        await update.message.reply_text(
-            "❌ Нужно минимум 2 фотографии. Создайте объявление заново.",
-            reply_markup=main_menu
-        )
-        context.user_data.clear()
-        return
-
-    media = []
-
-    for i, photo in enumerate(photos):
-
-        if i == 0:
-            media.append(
-                InputMediaPhoto(media=photo, caption=caption)
+    try:
+        if len(photos) == 1:
+            await bot.send_photo(
+                chat_id=CHANNEL_USERNAME,
+                photo=photos[0],
+                caption=caption
             )
         else:
-            media.append(InputMediaPhoto(media=photo))
+            media = [InputMediaPhoto(media=photos[0], caption=caption)]
+            for photo in photos[1:]:
+                media.append(InputMediaPhoto(media=photo))
+            await bot.send_media_group(chat_id=CHANNEL_USERNAME, media=media)
 
-    await context.bot.send_media_group(
-        chat_id=CHANNEL,
-        media=media
-    )
-
-    cursor.execute(
-        """
-        INSERT INTO ads
-        (user_id, game, access, price, currency, payment, description)
-        VALUES(?,?,?,?,?,?,?)
-        """,
-        (
-            user.id,
-            data["game"],
-            data["access"],
-            data["price"],
-            data["currency"],
-            data["payment"],
-            data["description"]
+        cursor.execute(
+            "INSERT INTO ads(user_id, game, access, price, currency, bank, description) VALUES(?,?,?,?,?,?,?)",
+            (user.id, data["game"], data["access"], data["price"], data["currency"], data["bank"], data["description"])
         )
-    )
+        cursor.execute("UPDATE users SET posts = posts + 1 WHERE user_id = ?", (user.id,))
+        db.commit()
 
-    cursor.execute(
-        """
-        UPDATE users
-        SET posts = posts + 1
-        WHERE user_id = ?
-        """,
-        (user.id,)
-    )
+        await callback.message.edit_text(
+            "✅ Объявление опубликовано!\n\nВыберите действие:",
+            reply_markup=main_menu
+        )
+    except Exception as e:
+        logging.error(f"Ошибка публикации: {e}")
+        await callback.message.edit_text(
+            f"❌ Ошибка при публикации: {e}\n\nПопробуйте позже.",
+            reply_markup=main_menu
+        )
 
-    db.commit()
+    await state.clear()
 
-    await update.message.reply_text(
-        "✅ Объявление успешно опубликовано!",
-        reply_markup=main_menu
-    )
 
-    context.user_data.clear()
+@dp.callback_query(F.data == "cancel_ad")
+async def cancel_ad_callback(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.edit_text("❌ Создание отменено.\n\nВыберите действие:", reply_markup=main_menu)
+
+
+async def cancel_ad_handler(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("❌ Создание отменено.", reply_markup=remove_keyboard)
+    await message.answer("👋 Выберите действие:", reply_markup=main_menu)
 
 
 # =========================
 # ПРОФИЛЬ
 # =========================
 
-async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    user = update.effective_user
-
-    cursor.execute(
-        """
-        SELECT posts
-        FROM users
-        WHERE user_id = ?
-        """,
-        (user.id,)
-    )
-
+@dp.callback_query(F.data == "profile")
+async def profile(callback: CallbackQuery):
+    user = callback.from_user
+    cursor.execute("SELECT posts, reg_date FROM users WHERE user_id=?", (user.id,))
     result = cursor.fetchone()
-
     posts = result[0] if result else 0
+    reg_date = result[1] if result else "—"
 
-    await update.message.reply_text(
-        f"""
-👤 Мой профиль
-
-🆔 ID: {user.id}
-📢 Объявлений: {posts}
-
-⭐ Репутация: новая
-"""
+    await callback.message.edit_text(
+        f"👤 <b>Мой профиль</b>\n\n"
+        f"🆔 ID: <code>{user.id}</code>\n"
+        f"👤 Username: @{user.username or '—'}\n"
+        f"📅 Регистрация: {reg_date}\n"
+        f"📢 Объявлений: {posts}\n"
+        f"⭐ Репутация: новая",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="back_menu")]]
+        )
     )
 
 
@@ -651,68 +512,102 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ОТЗЫВЫ
 # =========================
 
-async def reviews(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    await update.message.reply_text(
-        f"""
-⭐ Отзывы
-
-{REVIEWS}
-"""
+@dp.callback_query(F.data == "reviews")
+async def reviews(callback: CallbackQuery):
+    await callback.message.edit_text(
+        f"⭐ <b>Отзывы</b>\n\n"
+        f"Все отзывы о продавцах и покупателях:\n{REVIEWS}",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="back_menu")]]
+        )
     )
 
 
 # =========================
-# ПОИСК АККАУНТОВ
+# ПРАВИЛА
 # =========================
 
-async def search_ads(update: Update, context: ContextTypes.DEFAULT_TYPE):
+@dp.callback_query(F.data == "rules")
+async def rules(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "📜 <b>Правила Abu Post</b>\n\n"
+        "1. Запрещено продавать ворованные аккаунты.\n"
+        "2. Используйте гаранта при крупных сделках.\n"
+        "3. Сохраняйте доказательства сделок.\n"
+        "4. Мошенничество → бан навсегда.\n"
+        "5. Администрация не несёт ответственности за сделки без гаранта.\n\n"
+        f"✅ Гарант: {GUARANT}",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="back_menu")]]
+        )
+    )
 
+
+# =========================
+# ИНФО
+# =========================
+
+@dp.callback_query(F.data == "info")
+async def info(callback: CallbackQuery):
+    await callback.message.edit_text(
+        f"ℹ️ <b>О Abu Post</b>\n\n"
+        f"Маркетплейс игровых аккаунтов.\n\n"
+        f"📢 Канал: {CHANNEL_USERNAME}\n"
+        f"⭐ Отзывы: {REVIEWS}\n"
+        f"✅ Гарант: {GUARANT}\n"
+        f"🤖 Бот: {ABU_POST}",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="back_menu")]]
+        )
+    )
+
+
+# =========================
+# ПОИСК
+# =========================
+
+@dp.callback_query(F.data == "search")
+async def search(callback: CallbackQuery):
     cursor.execute(
-        """
-        SELECT game, price, currency, payment
-        FROM ads
-        ORDER BY id DESC
-        LIMIT 10
-        """
+        "SELECT game, price, currency, bank FROM ads ORDER BY id DESC LIMIT 10"
     )
-
     ads = cursor.fetchall()
 
     if not ads:
-
-        await update.message.reply_text(
-            "🔍 Пока нет доступных объявлений."
+        await callback.message.edit_text(
+            "🔍 Пока нет доступных объявлений.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="back_menu")]]
+            )
         )
-
         return
 
-    text = "🔍 Последние аккаунты:\n\n"
-
+    text = "🔍 <b>Последние объявления:</b>\n\n"
     for ad in ads:
+        text += f"🎮 {ad[0]} | 💰 {ad[1]} {ad[2]} | 🏦 {ad[3]}\n"
 
-        text += f"""
-🎮 {ad[0]}
-💰 Цена: {ad[1]} {ad[2]}
-💳 Оплата: {ad[3]}
+    text += f"\n📢 Все объявления: {CHANNEL_USERNAME}"
 
-"""
-
-    await update.message.reply_text(text)
+    await callback.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="back_menu")]]
+        )
+    )
 
 
 # =========================
 # ИЗБРАННОЕ
 # =========================
 
-async def favorites(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    await update.message.reply_text(
-        """
-❤️ Избранное
-
-У вас пока нет сохранённых аккаунтов.
-"""
+@dp.callback_query(F.data == "favorites")
+async def favorites(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "❤️ <b>Избранное</b>\n\n"
+        "Функция в разработке. Скоро появится возможность сохранять понравившиеся аккаунты.",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="back_menu")]]
+        )
     )
 
 
@@ -720,102 +615,160 @@ async def favorites(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ЖАЛОБА
 # =========================
 
-async def complaint(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    context.user_data["waiting_complaint"] = True
-
-    await update.message.reply_text(
-        """
-🚨 Жалоба
-
-Напишите причину жалобы.
-Администратор рассмотрит её.
-"""
+@dp.callback_query(F.data == "complaint")
+async def complaint(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(
+        "🚨 <b>Жалоба</b>\n\n"
+        "Напишите причину жалобы. Администратор рассмотрит её.",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="back_menu")]]
+        )
     )
+    await state.set_state(ComplaintState.waiting)
 
 
-async def save_complaint(update: Update, context: ContextTypes.DEFAULT_TYPE):
+@dp.message(ComplaintState.waiting)
+async def save_complaint(message: Message, state: FSMContext):
+    user = message.from_user
+    username = f"@{user.username}" if user.username else f"ID: {user.id}"
 
-    if not context.user_data.get("waiting_complaint"):
-        return
-
-    user = update.effective_user
-
-    username = (
-        f"@{user.username}"
-        if user.username
-        else "Без username"
-    )
-
-    await context.bot.send_message(
+    await bot.send_message(
         ADMIN_ID,
-        f"""
-🚨 Новая жалоба
-
-👤 Пользователь:
-{username}
-
-📝 Причина:
-{update.message.text}
-"""
+        f"🚨 <b>Новая жалоба</b>\n\n"
+        f"👤 Пользователь: {username}\n"
+        f"🆔 ID: {user.id}\n\n"
+        f"📝 Причина:\n{message.text}"
     )
 
-    await update.message.reply_text(
-        "✅ Жалоба отправлена.",
-        reply_markup=main_menu
-    )
-
-    context.user_data.clear()
+    await state.clear()
+    await message.answer("✅ Жалоба отправлена администратору.", reply_markup=remove_keyboard)
+    await message.answer("👋 Выберите действие:", reply_markup=main_menu)
 
 
 # =========================
 # СИГНАЛ
 # =========================
 
-async def signal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+@dp.callback_query(F.data == "signal")
+async def signal(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(
+        "🔔 <b>Сигнал</b>\n\n"
+        "Напишите какой аккаунт вы ищете.\n\n"
+        "Например:\n"
+        "🎮 Free Fire, бюджет 500 сом, нужен Google-доступ",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="back_menu")]]
+        )
+    )
+    await state.set_state(SignalState.waiting)
 
-    await update.message.reply_text(
-        """
-🔔 Сигнал
 
-Напишите, какой аккаунт вы ищете.
+@dp.message(SignalState.waiting)
+async def save_signal(message: Message, state: FSMContext):
+    user = message.from_user
+    username = f"@{user.username}" if user.username else f"ID: {user.id}"
 
-Например:
-🎮 Free Fire
-💰 Бюджет
-🔑 Доступ
-"""
+    await bot.send_message(
+        ADMIN_ID,
+        f"🔔 <b>Новый сигнал (запрос)</b>\n\n"
+        f"👤 Пользователь: {username}\n"
+        f"🆔 ID: {user.id}\n\n"
+        f"🔍 Ищет:\n{message.text}"
     )
 
+    await state.clear()
+    await message.answer(
+        "✅ Сигнал отправлен! Если подходящий аккаунт появится — мы уведомим.",
+        reply_markup=remove_keyboard
+    )
+    await message.answer("👋 Выберите действие:", reply_markup=main_menu)
+
 
 # =========================
-# АДМИН ПАНЕЛЬ
+# АДМИН
 # =========================
 
-async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    if update.effective_user.id != ADMIN_ID:
-
-        await update.message.reply_text(
-            "❌ Доступ запрещён."
-        )
-
+@dp.message(Command("admin"))
+async def admin(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Доступ запрещён.")
         return
 
     cursor.execute("SELECT COUNT(*) FROM users")
-    users = cursor.fetchone()[0]
+    users_count = cursor.fetchone()[0]
 
     cursor.execute("SELECT COUNT(*) FROM ads")
-    ads = cursor.fetchone()[0]
+    ads_count = cursor.fetchone()[0]
 
-    await update.message.reply_text(
-        f"""
-👮 Abu Post Admin
+    admin_keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📋 Последние объявления", callback_data="admin_ads")],
+            [InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users")]
+        ]
+    )
 
-👤 Пользователи: {users}
+    await message.answer(
+        f"👮 <b>Abu Post Admin</b>\n\n"
+        f"👤 Пользователей: {users_count}\n"
+        f"📢 Объявлений: {ads_count}",
+        reply_markup=admin_keyboard
+    )
 
-📢 Объявления: {ads}
-"""
+
+@dp.callback_query(F.data == "admin_ads")
+async def admin_ads(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    cursor.execute("SELECT id, game, price, currency FROM ads ORDER BY id DESC LIMIT 5")
+    ads = cursor.fetchall()
+    text = "📋 <b>Последние 5 объявлений:</b>\n\n"
+    for ad in ads:
+        text += f"#{ad[0]} | 🎮 {ad[1]} | 💰 {ad[2]} {ad[3]}\n"
+    await callback.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")]]
+        )
+    )
+
+
+@dp.callback_query(F.data == "admin_users")
+async def admin_users(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    cursor.execute("SELECT user_id, username, posts FROM users ORDER BY posts DESC LIMIT 10")
+    users = cursor.fetchall()
+    text = "👥 <b>Топ пользователей:</b>\n\n"
+    for u in users:
+        uname = f"@{u[1]}" if u[1] else f"ID:{u[0]}"
+        text += f"{uname} — {u[2]} объявл.\n"
+    await callback.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")]]
+        )
+    )
+
+
+@dp.callback_query(F.data == "admin_back")
+async def admin_back(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    cursor.execute("SELECT COUNT(*) FROM users")
+    users_count = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM ads")
+    ads_count = cursor.fetchone()[0]
+    admin_keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📋 Последние объявления", callback_data="admin_ads")],
+            [InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users")]
+        ]
+    )
+    await callback.message.edit_text(
+        f"👮 <b>Abu Post Admin</b>\n\n"
+        f"👤 Пользователей: {users_count}\n"
+        f"📢 Объявлений: {ads_count}",
+        reply_markup=admin_keyboard
     )
 
 
@@ -823,75 +776,7 @@ async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ЗАПУСК
 # =========================
 
-def main():
-
-    app = Application.builder().token(TOKEN).build()
-
-    # Диалог создания объявления
-    ad_conv = ConversationHandler(
-        entry_points=[
-            MessageHandler(filters.Regex("^📢 Объявление$"), create_ad)
-        ],
-        states={
-            GAME: [
-                MessageHandler(filters.Regex("^❌ Отменить$"), cancel_ad),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, choose_game),
-            ],
-            PHOTOS: [
-                MessageHandler(filters.PHOTO, get_photo),
-                MessageHandler(filters.Regex("^✅ Готово$"), photos_done),
-                MessageHandler(filters.Regex("^❌ Отменить$"), cancel_ad),
-            ],
-            ACCESS: [
-                MessageHandler(filters.Regex("^❌ Отменить$"), cancel_ad),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, choose_access),
-            ],
-            DESCRIPTION: [
-                MessageHandler(filters.Regex("^❌ Отменить$"), cancel_ad),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, get_description),
-            ],
-            PRICE: [
-                MessageHandler(filters.Regex("^❌ Отменить$"), cancel_ad),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, get_price),
-            ],
-            CURRENCY: [
-                MessageHandler(filters.Regex("^❌ Отменить$"), cancel_ad),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, get_currency),
-            ],
-            PAYMENT: [
-                MessageHandler(filters.Regex("^❌ Отменить$"), cancel_ad),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, get_payment),
-            ],
-        },
-        fallbacks=[
-            MessageHandler(filters.Regex("^❌ Отменить$"), cancel_ad),
-            CommandHandler("start", start),
-        ],
-    )
-
-    # Основные хэндлеры
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("admin", admin))
-    app.add_handler(CallbackQueryHandler(check_sub_button, pattern="^check_sub$"))
-
-    # Диалог объявления
-    app.add_handler(ad_conv)
-
-    # Публикация (после диалога)
-    app.add_handler(MessageHandler(filters.Regex("^✅ Опубликовать$"), publish_ad))
-
-    # Меню-кнопки
-    app.add_handler(MessageHandler(filters.Regex("^👤 Профиль$"), profile))
-    app.add_handler(MessageHandler(filters.Regex("^⭐ Отзывы$"), reviews))
-    app.add_handler(MessageHandler(filters.Regex("^🔍 Поиск аккаунтов$"), search_ads))
-    app.add_handler(MessageHandler(filters.Regex("^❤️ Избранное$"), favorites))
-    app.add_handler(MessageHandler(filters.Regex("^🔔 Сигнал$"), signal))
-    app.add_handler(MessageHandler(filters.Regex("^🚨 Жалоба$"), complaint))
-
-    # Жалоба — ловим текст (должен быть последним)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, save_complaint))
-
-    # Запускаем HTTP-сервер для Render (health check)
+def start_health_server():
     class HealthHandler(BaseHTTPRequestHandler):
         def do_GET(self):
             self.send_response(200)
@@ -901,14 +786,17 @@ def main():
             pass
 
     port = int(os.getenv("PORT", 8080))
-    health_server = HTTPServer(("0.0.0.0", port), HealthHandler)
-    thread = threading.Thread(target=health_server.serve_forever, daemon=True)
+    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
+    print(f"✅ Health server started on port {port}")
 
+
+async def main():
+    start_health_server()
     print("🤖 Abu Post Bot запущен!")
-
-    app.run_polling(drop_pending_updates=True)
+    await dp.start_polling(bot, drop_pending_updates=True)
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
