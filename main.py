@@ -188,6 +188,7 @@ migrations = [
     "ALTER TABLE users ADD COLUMN dislikes INTEGER DEFAULT 0",
     "ALTER TABLE users ADD COLUMN active_boosts INTEGER DEFAULT 0",
     "ALTER TABLE users ADD COLUMN total_boosts INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN language TEXT DEFAULT 'ru'",
 ]
 for migration in migrations:
     try:
@@ -215,6 +216,19 @@ class CreateAdvertisement(StatesGroup):
 # =========================================================
 # CONSTANTS
 # =========================================================
+
+LANGUAGES = {
+    "ru": "🇷🇺 Русский",
+    "ky": "🇰🇬 Кыргызча",
+    "kz": "🇰🇿 Қазақша",
+    "uz": "🇺🇿 O'zbek",
+    "tj": "🇹🇯 Тоҷикӣ",
+    "az": "🇦🇿 Azərbaycan",
+    "tr": "🇹🇷 Türkçe",
+    "tm": "🇹🇲 Türkmen",
+    "en": "🇬🇧 English",
+    "cn": "🇨🇳 中文",
+}
 
 GAMES = {
     "freefire": "🔥 Free Fire",
@@ -331,6 +345,23 @@ def save_photo(ad_id, file_id):
     db.commit()
 
 
+def set_language(user_id, lang_code):
+    cursor.execute(
+        "UPDATE users SET language=? WHERE user_id=?",
+        (lang_code, user_id)
+    )
+    db.commit()
+
+
+def get_language(user_id):
+    cursor.execute(
+        "SELECT language FROM users WHERE user_id=?",
+        (user_id,)
+    )
+    row = cursor.fetchone()
+    return row[0] if row else "ru"
+
+
 def profile_text(user_id):
     # Колонки: 0=id, 1=user_id, 2=username, 3=first_name, 4=register_date,
     #          5=ads_count, 6=moderation, 7=approved, 8=removed, 9=reviews,
@@ -395,6 +426,16 @@ def main_menu_keyboard():
     builder.row(InlineKeyboardButton(text="⭐ Отзывы", callback_data="reviews"))
     builder.row(InlineKeyboardButton(text="ℹ️ Инфо", callback_data="info"))
     builder.row(InlineKeyboardButton(text="👤 Профиль", callback_data="profile"))
+    builder.row(InlineKeyboardButton(text="🌍 Язык / Language", callback_data="language"))
+    return builder.as_markup()
+
+
+def language_keyboard():
+    builder = InlineKeyboardBuilder()
+    for key, value in LANGUAGES.items():
+        builder.button(text=value, callback_data=f"lang_{key}")
+    builder.adjust(2)
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back"))
     return builder.as_markup()
 
 
@@ -624,6 +665,34 @@ async def info_handler(callback: CallbackQuery):
         reply_markup=builder.as_markup()
     )
     await callback.answer()
+
+
+# =========================================================
+# LANGUAGE SELECT
+# =========================================================
+
+@dp.callback_query(F.data == "language")
+async def language_handler(callback: CallbackQuery):
+    lang_code = get_language(callback.from_user.id)
+    current = LANGUAGES.get(lang_code, "🇷🇺 Русский")
+    await callback.message.edit_text(
+        f"🌍 <b>Выберите язык / Select language</b>\n\n"
+        f"Текущий язык: {current}",
+        reply_markup=language_keyboard()
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("lang_"))
+async def lang_selected(callback: CallbackQuery):
+    lang_code = callback.data.replace("lang_", "")
+    lang_name = LANGUAGES.get(lang_code, "🇷🇺 Русский")
+    set_language(callback.from_user.id, lang_code)
+    await callback.answer(f"✅ {lang_name}", show_alert=True)
+    await callback.message.edit_text(
+        "🏠 <b>Главное меню</b>",
+        reply_markup=main_menu_keyboard()
+    )
 
 
 # =========================================================
